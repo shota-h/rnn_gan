@@ -16,11 +16,11 @@ import os, sys
 
 file_dir=os.path.abspath(os.path.dirname(__file__))
 lstm_cell=350
-signal_len=1440
 
 
-def create_random_input():
-    return np.random.uniform(low=-1,high=1,size=[])
+
+def create_random_input(signal_num):
+    return np.random.uniform(low=-1,high=1,size=[signal_num,signal_len,1])
 
 
 def form_discriminator():
@@ -47,9 +47,14 @@ def form_generator():
 
 
 if __name__=='__main__':
-    train_x=np.load(file_dir+'/ecg.npy')
-    plt.plot(train_x[0,:])
-    plt.show()
+    # train_x=np.load(file_dir+'/ecg.npy')
+    # train_x=train_x.T
+    global signal_len
+    signal_len=20
+    signal_num=100
+    # signal_len=train_x.shape[0]
+    s=create_random_input(signal_num)
+    # print(s.shape)
     # Input=Input(shape=(1,))
     # model1=Dense(units=10)(Input)
     # model2=Dense(units=30)(Input)
@@ -63,21 +68,30 @@ if __name__=='__main__':
     # sys.exit()
     print('\n----setup----\n')
     D=form_discriminator()
+    print('\n----form D----\n')
     G=form_generator()
+    print('\n----form G----\n')
     D.compile(optimizer='sgd',loss='binary_crossentropy')
     D.trainable=False
-    print('formed D-------\n')
+    print('\n----compile D----\n')
     # G.compile(optimizer='sgd',loss='binary_crossentropy')
     # G.trainable=False
     # print('formed G-------\n')
     # print('model G')
     # G.summary()
-    print('\nmodel D')
+    print('\n----model D----\n')
     D.summary()
     GAN=Sequential([G,D])
     print('form GAN\n')
     GAN.compile(optimizer='sgd',loss='binary_crossentropy')
     # GAN.trainable=False
+    print('\n----model GAN----\n')
     GAN.summary()
 
     print('\n----train step----\n')
+    h=D.fit(s,np.ones([s.shape[0]]),epochs=100,batch_size=5,verbose=0)
+    print(h.history['loss'][-1])
+    signal_num=10
+    s=create_random_input(signal_num)
+    acc=D.predict(s)
+    print(acc)
