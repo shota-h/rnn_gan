@@ -15,6 +15,7 @@ import os, sys
 
 file_dir=os.path.dirname(__file__)
 lstm_cell=350
+signal_len=1440
 
 def create_random_input():
     return np.random.uniform(low=-1,high=1,size=[])
@@ -23,7 +24,7 @@ def create_random_input():
 def form_discriminator():
     discriminator=Sequential()
     # discriminator.add(Bidirectional(LSTM(units=(lstm_cell,),unit_forget_bias=True,recurrent_regularizer=l2(0.01)),input_shape=(1,1)))
-    discriminator.add(LSTM(input_shape=(None,1,),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=False))
+    discriminator.add(LSTM(input_shape=(None,1),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=False))
     # discriminator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     discriminator.add(Dense(units=1,activation='sigmoid'))
 
@@ -32,7 +33,7 @@ def form_discriminator():
 
 def form_generator():
     generator=Sequential()
-    generator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=False),input_shape=(None,1)))
+    generator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True),input_shape=(None,1),merge_mode='sum'))
     # generator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     generator.add(Dense(units=1))
     generator.add(Activation('linear'))
@@ -71,7 +72,6 @@ if __name__=='__main__':
     GAN=Sequential([G,D])
     print('form GAN\n')
     GAN.compile(optimizer='sgd',loss='binary_crossentropy')
+    GAN.trainable=False
     GAN.summary()
-    # D.summary()
-    # plot_model(D,to_file='model.png')
     print('end')
