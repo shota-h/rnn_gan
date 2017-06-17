@@ -48,24 +48,12 @@ def form_generator():
 
 
 if __name__=='__main__':
-    # train_x=np.load(file_dir+'/ecg.npy')
-    # train_x=train_x.T
+    train_x=np.load(file_dir+'/ecg.npy')
+    print(train_x.shape)
+    # sys.exit()
     global signal_len
-    signal_len=20
-    signal_num=1
-    # signal_len=train_x.shape[0]
-    s=create_random_input(signal_num)
-    s1=np.sin(2*np.linspace(0,2*np.pi,signal_len))
-    s2=np.sin(np.linspace(0,2*np.pi,signal_len))
-    s=np.empty([signal_len,0])
-    for i in range(9):
-        s=np.append(s,s1)
-    for i in range(9):
-        s=np.append(s,s2)
+    signal_len=train_x.shape[1]
 
-    plt.plot(s)
-    plt.show()
-    s=s.reshape(int(s.shape[0]/signal_len),signal_len,1)
     # print(s.shape)
     # Input=Input(shape=(1,))
     # model1=Dense(units=10)(Input)
@@ -102,10 +90,9 @@ if __name__=='__main__':
     GAN.summary()
 
     print('\n----train step----\n')
-    y_pre=np.ones([int(s.shape[0]/2)])
-    y_pre=np.append(y_pre,np.zeros([int(s.shape[0]/2)]))
-    h=D.fit(s,y_pre,epochs=10,batch_size=256,verbose=0)
-    print(h.history['loss'][-1])
+    train_y=np.append(np.ones([int(s.shape[0])]))
+    d_loss=D.fit(train_x,train_y,epochs=100,batch_size=21,verbose=0)
+    print(d_loss.history['loss'][-1])
     signal_num=10
     s=create_random_input(signal_num)
     # plt.plot(s[:,0])
