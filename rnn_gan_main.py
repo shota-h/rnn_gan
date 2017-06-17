@@ -10,6 +10,7 @@ from keras.regularizers import l2
 # from keras.utils.vis_utils import plot_model
 import tensorflow as tf
 import numpy as np
+from keras import backend as K
 import matplotlib.pyplot as plt
 import os, sys
 
@@ -51,9 +52,20 @@ if __name__=='__main__':
     # train_x=train_x.T
     global signal_len
     signal_len=20
-    signal_num=100
+    signal_num=1
     # signal_len=train_x.shape[0]
     s=create_random_input(signal_num)
+    s1=np.sin(2*np.linspace(0,2*np.pi,signal_len))
+    s2=np.sin(np.linspace(0,2*np.pi,signal_len))
+    s=np.empty([signal_len,0])
+    for i in range(9):
+        s=np.append(s,s1)
+    for i in range(9):
+        s=np.append(s,s2)
+
+    plt.plot(s)
+    plt.show()
+    s=s.reshape(int(s.shape[0]/signal_len),signal_len,1)
     # print(s.shape)
     # Input=Input(shape=(1,))
     # model1=Dense(units=10)(Input)
@@ -72,15 +84,16 @@ if __name__=='__main__':
     G=form_generator()
     print('\n----form G----\n')
     D.compile(optimizer='sgd',loss='binary_crossentropy')
-    D.trainable=False
     print('\n----compile D----\n')
+    print('\n----model D----\n')
+    D.summary()
+    D.trainable=False
     # G.compile(optimizer='sgd',loss='binary_crossentropy')
     # G.trainable=False
     # print('formed G-------\n')
     # print('model G')
     # G.summary()
-    print('\n----model D----\n')
-    D.summary()
+
     GAN=Sequential([G,D])
     print('form GAN\n')
     GAN.compile(optimizer='sgd',loss='binary_crossentropy')
@@ -89,9 +102,15 @@ if __name__=='__main__':
     GAN.summary()
 
     print('\n----train step----\n')
-    h=D.fit(s,np.ones([s.shape[0]]),epochs=100,batch_size=5,verbose=0)
+    y_pre=np.ones([int(s.shape[0]/2)])
+    y_pre=np.append(y_pre,np.zeros([int(s.shape[0]/2)]))
+    h=D.fit(s,y_pre,epochs=10,batch_size=256,verbose=0)
     print(h.history['loss'][-1])
     signal_num=10
     s=create_random_input(signal_num)
+    # plt.plot(s[:,0])
+    # plt.show()
     acc=D.predict(s)
     print(acc)
+    # ... code
+    K.clear_session()
