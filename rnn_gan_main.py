@@ -1,6 +1,6 @@
 #rnn GAN
 #signal generate
-
+# TODO ÉpÉâÉÅÅ[É^ÇÃí≤êÆ
 from keras.models import Sequential
 from keras.layers import Dense, Activation, merge, Input
 from keras.models import Model
@@ -12,7 +12,7 @@ import tensorflow as tf
 import numpy as np
 from keras import backend as K
 import matplotlib.pyplot as plt
-import os, sys
+import os, sys, json
 
 
 file_dir=os.path.abspath(os.path.dirname(__file__))
@@ -48,24 +48,12 @@ def form_generator():
 
 
 if __name__=='__main__':
-    train_x=np.load(file_dir+'/ecg.npy')
-    print(train_x.shape)
-    # sys.exit()
-    global signal_len
-    signal_len=train_x.shape[1]
+    train_x=np.load(file_dir+'/ecg_small.npy')
+    train_y=np.ones([train_x.shape[0]])
 
-    # print(s.shape)
-    # Input=Input(shape=(1,))
-    # model1=Dense(units=10)(Input)
-    # model2=Dense(units=30)(Input)
-    # a=[]
-    # a.append(model1)
-    # a.append(model2)
-    # merged_m=merge(a,mode='sum')
-    # model=Model(inputs=Input,outputs=merged_m)
-    # model.compile(optimizer='sgd',loss='binary_crossentropy')
-    # model.summary()
-    # sys.exit()
+    global signal_len
+    # signal_len=train_x.shape[1]
+    signal_len=train_x.shape[1]
     print('\n----setup----\n')
     D=form_discriminator()
     print('\n----form D----\n')
@@ -90,14 +78,29 @@ if __name__=='__main__':
     GAN.summary()
 
     print('\n----train step----\n')
-    train_y=np.append(np.ones([int(s.shape[0])]))
-    d_loss=D.fit(train_x,train_y,epochs=100,batch_size=21,verbose=0)
-    print(d_loss.history['loss'][-1])
+
+    for epoch in range(1,100):
+        print('epoch:{0}'.format(epoch))
+
+
+    d_loss=D.fit(train_x,train_y,epochs=100,batch_size=21,verbose=1)
+    print('\n----trained D----\n')
+    print('loss D',d_loss.history['loss'][-1])
     signal_num=10
-    s=create_random_input(signal_num)
-    # plt.plot(s[:,0])
-    # plt.show()
-    acc=D.predict(s)
-    print(acc)
-    # ... code
+    test_x=create_random_input(signal_num)
+    test_y=np.ones([int(test_x.shape[0])])
+    # print(test_x.shape)
+    # print(test_y.shape)
+    gan_loss=GAN.fit(test_x,test_y,epochs=10,batch_size=5,verbose=0)
+    print('\n----trained GAN----\n')
+    print('loss GAN',gan_loss.history['loss'][-1])
+    print(GAN.layers)
+    model_json=GAN.to_json()
+    f=open('model_gan.json','w')
+    json.dump(model_json,f)
+    sys.exit()
+    # get_hidden_layer_output=K.function([GAN.layers[2]])
+
+    # gan_acc=GAN.predict(create_random_input(10))
+    # print('gan predict',gan_acc)
     K.clear_session()
