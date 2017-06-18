@@ -79,6 +79,7 @@ if __name__=='__main__':
 
     print('\n----train step----\n')
     get_hidden_layer=K.function([GAN.layers[0].input],[GAN.layers[0].output])
+    met_curve=[]
     for epoch in range(1,100):
         print('epoch:{0}'.format(epoch))
         np.random.shuffle(train_x)
@@ -95,23 +96,25 @@ if __name__=='__main__':
         # sys.exit()
         d_x=np.append(train_x,hidden_output,axis=0)
         d_y=np.append(train_y,np.ones([int(hidden_output.shape[0])]))
-        loss_d, acc_d=D.fit([d_x],[d_y],epochs=1,batch_size=int(d_x.shape[0]/2),verbose=0)
-        loss_g, acc_g=GAN.fit([test_x],[test_y],epochs=1,batch_size=5,verbose=0)
-        met_curve=np.append(met_curve,[[loss_d,acc,d,loss_g,acc_g]],axis=0)
+        history_d=D.fit([d_x],[d_y],epochs=1,batch_size=int(d_x.shape[0]/2),verbose=0)
+        history_g=GAN.fit([test_x],[test_y],epochs=1,batch_size=5,verbose=0)
+        # met_curve=np.append(met_curve,[history_d['loss'][-1],history_g['loss'][-1]],axis=0)
 
 
     print('\n----trained D----\n')
-    print('loss D',loss_d)
+    # print('loss D',loss_d)
         # print(test_x.shape)
     # print(test_y.shape)
     print('\n----trained GAN----\n')
-    print('loss G',loss_g)
+    # print('loss G',loss_g)
     model_json=GAN.to_json()
     f=open('model_gan.json','w')
     json.dump(model_json,f)
+    GAN.save_weights('gan_param.hdf5')
     model_json=D.to_json()
     f=open('model_dis.json','w')
     json.dump(model_json,f)
+    D.save_weights('dis_param.hdf5')
 
     # gan_acc=GAN.predict(create_random_input(10))
     # print('gan predict',gan_acc)
