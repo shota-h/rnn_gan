@@ -27,7 +27,7 @@ def create_random_input(signal_num):
 def form_discriminator():
     discriminator=Sequential()
     # discriminator.add(Bidirectional(LSTM(units=(lstm_cell,),unit_forget_bias=True,recurrent_regularizer=l2(0.01)),input_shape=(1,1)))
-    discriminator.add(LSTM(input_shape=(signal_len,1),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=False))
+    discriminator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=False),merge_mode='sum',input_shape=(signal_len,1)))
     # discriminator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     discriminator.add(Dense(units=1,activation='sigmoid'))
 
@@ -36,7 +36,7 @@ def form_discriminator():
 
 def form_generator():
     generator=Sequential()
-    generator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True),input_shape=(signal_len,1),merge_mode='sum'))
+    generator.add(LSTM(input_shape=(signal_len,1),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True))
     # generator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     generator.add(Dense(units=1))
     generator.add(Activation('linear'))
@@ -54,6 +54,7 @@ if __name__=='__main__':
     global signal_len
     # signal_len=train_x.shape[1]
     signal_len=train_x.shape[1]
+    print(signal_len)
     print('\n----setup----\n')
     D=form_discriminator()
     print('\n----form D----\n')
@@ -80,7 +81,7 @@ if __name__=='__main__':
     print('\n----train step----\n')
     get_hidden_layer=K.function([GAN.layers[0].input],[GAN.layers[0].output])
     met_curve=[]
-    for epoch in range(1,100):
+    for epoch in range(1,200):
         print('epoch:{0}'.format(epoch))
         np.random.shuffle(train_x)
         signal_num=10
@@ -96,17 +97,18 @@ if __name__=='__main__':
         # sys.exit()
         d_x=np.append(train_x,hidden_output,axis=0)
         d_y=np.append(train_y,np.ones([int(hidden_output.shape[0])]))
+        print(d_x.shape)
         history_d=D.fit([d_x],[d_y],epochs=1,batch_size=int(d_x.shape[0]/2),verbose=0)
         history_g=GAN.fit([test_x],[test_y],epochs=1,batch_size=5,verbose=0)
+        if epoch%10==0:
+            print('\n----loss D----\n',history_d['loss'])
+            print('\n----loss G----\n',history_g['loss'])
+
         # met_curve=np.append(met_curve,[history_d['loss'][-1],history_g['loss'][-1]],axis=0)
 
 
     print('\n----trained D----\n')
-    # print('loss D',loss_d)
-        # print(test_x.shape)
-    # print(test_y.shape)
-    print('\n----trained GAN----\n')
-    # print('loss G',loss_g)
+    print('\n----trained G----\n')
     model_json=GAN.to_json()
     f=open('model_gan.json','w')
     json.dump(model_json,f)
