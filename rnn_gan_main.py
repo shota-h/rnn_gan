@@ -1,8 +1,8 @@
 #rnn GAN
 #signal generate
-# TODO ƒpƒ‰ƒ[ƒ^‚Ì’²®
+# TODO ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ã®èª¿æ•´å¿…è¦
 from keras.models import Sequential
-from keras.layers import Dense, Activation, merge, Input
+from keras.layers import Dense, Activation, merge, Input, pooling
 from keras.models import Model
 from keras.layers.recurrent import LSTM
 from keras.layers.wrappers import Bidirectional
@@ -27,9 +27,10 @@ def create_random_input(signal_num):
 def form_discriminator():
     discriminator=Sequential()
     # discriminator.add(Bidirectional(LSTM(units=(lstm_cell,),unit_forget_bias=True,recurrent_regularizer=l2(0.01)),input_shape=(1,1)))
-    discriminator.add(LSTM(input_shape=(signal_len,1),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=False))
+    discriminator.add(LSTM(input_shape=(signal_len,1),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True))
     # discriminator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     discriminator.add(Dense(units=1,activation='sigmoid'))
+    discriminator.add(pooling.AveragePooling1D(pool_length=1))
 
     return discriminator
 
@@ -79,8 +80,8 @@ if __name__=='__main__':
 
     print('\n----train step----\n')
 
-    for epoch in range(1,100):
-        print('epoch:{0}'.format(epoch))
+    # for epoch in range(1,100):
+    #     print('epoch:{0}'.format(epoch))
 
 
     d_loss=D.fit(train_x,train_y,epochs=100,batch_size=21,verbose=1)
@@ -95,10 +96,11 @@ if __name__=='__main__':
     print('\n----trained GAN----\n')
     print('loss GAN',gan_loss.history['loss'][-1])
     print(GAN.layers)
-    model_json=GAN.to_json()
-    f=open('model_gan.json','w')
-    json.dump(model_json,f)
-    sys.exit()
+    print(D.predict(create_random_input(1)))
+    # model_json=GAN.to_json()
+    # f=open('model_gan.json','w')
+    # json.dump(model_json,f)
+    # sys.exit()
     # get_hidden_layer_output=K.function([GAN.layers[2]])
 
     # gan_acc=GAN.predict(create_random_input(10))
