@@ -37,6 +37,7 @@ def form_discriminator():
     discriminator=Sequential()
     # discriminator.add(Bidirectional(LSTM(units=(lstm_cell,),unit_forget_bias=True,recurrent_regularizer=l2(0.01)),input_shape=(1,1)))
     discriminator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True),merge_mode='concat',input_shape=(signal_len,1)))
+    discriminator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True),merge_mode='concat'))
     # discriminator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     discriminator.add(Dense(units=1,activation='sigmoid'))
     # discriminator.add(pooling.AveragePooling1D(pool_length=signal_len,strides=None))
@@ -47,6 +48,7 @@ def form_discriminator():
 def form_generator():
     generator=Sequential()
     generator.add(LSTM(input_shape=(signal_len,1),units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True))
+    generator.add(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True))
     # generator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     generator.add(Dense(units=1))
     # generator.add(Activation('linear'))
@@ -97,9 +99,9 @@ if __name__=='__main__':
     mat_d=[]
     mat_g=[]
     # sys.exit()
-    for epoch in range(50):
+    for epoch in range(1000):
         print('epoch:{0}'.format(epoch+1))
-        np.random.shuffle(train_x)
+        # np.random.shuffle(train_x)
         signal_num=42
         test_x=create_random_input(signal_num)
         test_y=np.zeros([test_x.shape[0],signal_len])
@@ -108,7 +110,7 @@ if __name__=='__main__':
         hidden_output=hidden_output[0,:,:,:]
         d_x=np.append(train_x,hidden_output,axis=0)
         d_y=np.append(train_y,np.ones([hidden_output.shape[0],signal_len]),axis=0)
-        print(d_y.shape)
+        # print(d_y.shape)
         history_d=D.fit([d_x],[d_y.reshape(d_y.shape[0],1000,1)],epochs=1,batch_size=int(d_x.shape[0]/6),verbose=0)
         # print('--------\n',test_x.shape,test_y.shape)
         history_g=GAN.fit([test_x],[test_y.reshape(test_y.shape[0],1000,1)],epochs=1,batch_size=int(test_x.shape[0]/6),verbose=0)
