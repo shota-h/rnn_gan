@@ -98,27 +98,40 @@ if __name__=='__main__':
     # sys.exit()
     mat_d=[]
     mat_g=[]
+    signal_num=int(train_x.shape[0]/2)
+    batch_size=int(train_x.shape[0]/2)
+
+    varidation_x=train_x[40:42,:,:]
+    train_x=train_x[0:40,:,:]
+    # print(varidation_x.shape,train_x.shape)
     # sys.exit()
     for epoch in range(1000):
         print('epoch:{0}'.format(epoch+1))
-        # np.random.shuffle(train_x)
-        signal_num=42
-        test_x=create_random_input(signal_num)
-        test_y=np.zeros([test_x.shape[0],signal_len])
-        hidden_output=get_hidden_layer([test_x])
+        np.random.shuffle(train_x)
+        batch_x=train_x[batch_num*batch_size:(batch_num+1)*batch_size,:,:]
+
+        random_x=create_random_input(signal_num)
+        test_y=[0]*signal_len
+        hidden_output=get_hidden_layer([random_x])
         hidden_output=np.array(hidden_output)
         hidden_output=hidden_output[0,:,:,:]
-        d_x=np.append(train_x,hidden_output,axis=0)
-        d_y=np.append(train_y,np.ones([hidden_output.shape[0],signal_len]),axis=0)
-        # print(d_y.shape)
-        history_d=D.fit([d_x],[d_y.reshape(d_y.shape[0],1000,1)],epochs=1,batch_size=int(d_x.shape[0]/6),verbose=0)
+
+        history_d=D.train_on_batch([hidden_output],[1]*signal_len)
+        history_d=D.train_on_batch([batch_x],[0]*signal_len)
         # print('--------\n',test_x.shape,test_y.shape)
-        history_g=GAN.fit([test_x],[test_y.reshape(test_y.shape[0],1000,1)],epochs=1,batch_size=int(test_x.shape[0]/6),verbose=0)
+        history_g=GAN.train_on_batch([test_x],[0]*signal_len)
         if (epoch+1)%10==0:
-            mat_d.append(history_d.history['loss'])
-            mat_g.append(history_g.history['loss'])
-            print('\n----loss d----\n',history_d.history['loss'])
-            print('\n----loss g----\n',history_g.history['loss'])
+            random_x=create_random_input(2)
+            hidden_output=get_hidden_layer([test_x])
+            hidden_output=np.array(hidden_output)
+            hidden_output=hidden_output[0,:,:,:]
+            loss_d=D.test_on_batch([varidation_x.append(hiddden_output,axis=0)],[0]*signal_len+[1]*signal_len)
+            random_x=create_random_input(4)
+            loss_g=GAN.test_on_batch(random_x,[0]*signal_len)
+            print('\n----loss d----\n',loss_d)
+            print('\n----loss g----\n',loss_g)
+            mat_d.append(loss_d)
+            mat_g.append(loss_g)
         # met_curve=np.append(met_curve,[history_d['loss'][-1],history_g['loss'][-1]],axis=0)
 
     mat_d=np.array(mat_d)
