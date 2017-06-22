@@ -12,16 +12,16 @@ import tensorflow as tf
 import numpy as np
 from keras import backend as K
 import matplotlib.pyplot as plt
-import os, sys, json, datetime
+import os, sys, json, datetime, itertools
 
 
 file_dir=os.path.abspath(os.path.dirname(__file__))
-lstm_cell=350
+lstm_cell=30
 today=datetime.date.today()
 
 
 def create_random_input(signal_num):
-    return np.random.uniform(low=-1,high=1,size=[signal_num,signal_len,1])
+    return np.random.uniform(low=0,high=1,size=[signal_num,signal_len,1])
 
 
 def d_object(y_true,y_pred):
@@ -40,7 +40,7 @@ def form_discriminator():
     discriminator.add(Bidirectional(LSTM(units=lstm_cell,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True),merge_mode='concat'))
     # discriminator.add(Dense(input_shape=(1,),units=1,activation='sigmoid'))
     discriminator.add(Dense(units=1,activation='sigmoid'))
-    # discriminator.add(pooling.AveragePooling1D(pool_length=signal_len,strides=None))
+    discriminator.add(pooling.AveragePooling1D(pool_size=signal_len,strides=None))
 
     return discriminator
 
@@ -60,13 +60,15 @@ def form_generator():
 
 
 if __name__=='__main__':
-    train_x=np.load(file_dir+'/ecg_small.npy')
+    train_x=np.load(file_dir+'/ecg_normarized_small.npy')
     global signal_len
-    # signal_len=train_x.shape[1]
     signal_len=train_x.shape[1]
 
-    train_y=np.zeros([train_x.shape[0],signal_len])
-
+    varidation_x=train_x[40:,:,:]
+    train_x=train_x[0:40,:,:]
+    signal_num=int(train_x.shape[0])
+    batch_size=int(signal_num/2)
+    batch_num=2
 
     print('signal_length',signal_len)
     print('\n----setup----\n')
@@ -79,12 +81,13 @@ if __name__=='__main__':
     print('\n----model D----\n')
     D.summary()
     D.trainable=False
+    G.summary()
     # G.compile(optimizer='sgd',loss='binary_crossentropy')
     # G.trainable=False
     # print('formed G-------\n')
     # print('model G')
     # G.summary()
-
+    # sys.exit()
     GAN=Sequential([G,D])
     print('form GAN\n')
     GAN.compile(optimizer='sgd',loss='binary_crossentropy')
@@ -94,40 +97,39 @@ if __name__=='__main__':
 
     print('\n----train step----\n')
     get_hidden_layer=K.function([GAN.layers[0].input],[GAN.layers[0].output])
-    # G.summary()
-    # sys.exit()
+
+    hidden_y=np.ones([batch_size,1,1])
+    batch_y=np.zeros([batch_size,1,1])
+    random_y=np.zeros([batch_size*2,1,1])
+    varidation_y=np.zeros([2,1,1])
+    varidation_y=np.append(varidation_y,np.ones([2,1,1]),axis=0)
     mat_d=[]
     mat_g=[]
-    signal_num=int(train_x.shape[0]/2)
-    batch_size=int(train_x.shape[0]/2)
 
-    varidation_x=train_x[40:42,:,:]
-    train_x=train_x[0:40,:,:]
-    # print(varidation_x.shape,train_x.shape)
-    # sys.exit()
-    for epoch in range(1000):
-        print('epoch:{0}'.format(epoch+1))
-        np.random.shuffle(train_x)
+    for epoch, batch_num in itertools.product(range(1000),range(2)):
+        if batch_num==0:
+            np.random.shuffle(train_x)
+            print('epoch:{0}'.format(epoch+1))
+
         batch_x=train_x[batch_num*batch_size:(batch_num+1)*batch_size,:,:]
-
-        random_x=create_random_input(signal_num)
-        test_y=[0]*signal_len
+        random_x=create_random_input(batch_size)
         hidden_output=get_hidden_layer([random_x])
         hidden_output=np.array(hidden_output)
         hidden_output=hidden_output[0,:,:,:]
+        random_x=create_random_input(batch_size*2)
+        history_d=D.train_on_batch([hidden_output],[hidden_y],sample_weight=None)
+        history_d=D.train_on_batch([batch_x],[batch_y],sample_weight=None)
+        history_g=GAN.train_on_batch([random_x],[random_y],sample_weight=None)
 
-        history_d=D.train_on_batch([hidden_output],[1]*signal_len)
-        history_d=D.train_on_batch([batch_x],[0]*signal_len)
-        # print('--------\n',test_x.shape,test_y.shape)
-        history_g=GAN.train_on_batch([test_x],[0]*signal_len)
-        if (epoch+1)%10==0:
+        if (epoch+1)%10==0 and batch_num==1:
             random_x=create_random_input(2)
-            hidden_output=get_hidden_layer([test_x])
+            hidden_output=get_hidden_layer([random_x])
             hidden_output=np.array(hidden_output)
             hidden_output=hidden_output[0,:,:,:]
-            loss_d=D.test_on_batch([varidation_x.append(hiddden_output,axis=0)],[0]*signal_len+[1]*signal_len)
+            varidation_x_d=np.append(varidation_x,hidden_output,axis=0)
+            loss_d=D.test_on_batch([varidation_x_d],[varidation_y])
             random_x=create_random_input(4)
-            loss_g=GAN.test_on_batch(random_x,[0]*signal_len)
+            loss_g=GAN.test_on_batch(random_x,[random_y[0:4,:,:]])
             print('\n----loss d----\n',loss_d)
             print('\n----loss g----\n',loss_g)
             mat_d.append(loss_d)
