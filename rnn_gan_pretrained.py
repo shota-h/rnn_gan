@@ -50,8 +50,8 @@ if __name__=='__main__':
     train_x=np.load(file_dir+'/dataset/ecg_only_one.npy')
     global signal_len
     signal_len=train_x.shape[1]
-    varidation_x=train_x[0,:,:]
-    varidation_x=varidation_x.reshape(1,signal_len,1)
+    varidation_x=train_x
+    # varidation_x=varidation_x.reshape(1,signal_len,1)
 
     signal_num=int(train_x.shape[0])
 
@@ -59,11 +59,12 @@ if __name__=='__main__':
     print('\n----setup----\n')
     D=form_discriminator()
     G=form_generator()
-    D.compile(optimizer='sgd',loss='binary_crossentropy')
+    D.compile(optimizer='Adam',loss='binary_crossentropy')
     D.trainable=False
-    G.load_weights(file_dir+'/rnn_gan_pretrain/g_pretrain_param.hdf5')
+    G.load_weights(file_dir+'/rnn_gan_pretrain/g_pretrain_param_epoch1000.hdf5')
+    G.compile(optimizer='Adam',loss='mean_squared_error')
     GAN=Sequential([G,D])
-    GAN.compile(optimizer='sgd',loss='binary_crossentropy')
+    GAN.compile(optimizer='Adam',loss='binary_crossentropy')
 
     print('\n----train step----\n')
     get_hidden_layer=K.function([GAN.layers[0].input],[GAN.layers[0].output])
@@ -77,39 +78,38 @@ if __name__=='__main__':
     mat_g=[]
     mat_pre_d=[]
     mat_pre_g=[]
-    for epoch in range(2000):
+    for epoch in range(1000):
         np.random.shuffle(train_x)
         random_x=create_random_input(signal_num)
         hidden_output=get_hidden_layer([random_x])
         hidden_output=np.array(hidden_output)
         hidden_output=hidden_output[0,:,:,:]
         random_x=create_random_input(signal_num*2)
-        history_d=D.train_on_batch([hidden_output],[hidden_y],sample_weight=None)
-        history_d=D.train_on_batch([train_x],[train_y],sample_weight=None)
-        history_g=GAN.train_on_batch([random_x],[random_y],sample_weight=None)
-
+        history_d=D.train_on_batch([hidden_output],[[[1]]]*signal_num,sample_weight=None)
+        history_d=D.train_on_batch([train_x],[[[0]]]*signal_num,sample_weight=None)
+        history_gan=GAN.train_on_batch([random_x],[[[0]]]*signal_num*2,sample_weight=None)
+        history_g=G.train_on_batch([random_x],[train_x],sample_weight=None)
         if (epoch+1)%10==0:
             print('epoch:{0}'.format(epoch+1))
-            random_x=create_random_input(1)
-            hidden_output=get_hidden_layer([random_x])
+            hidden_output=get_hidden_layer([create_random_input(1)])
             hidden_output=np.array(hidden_output)
             hidden_output=hidden_output[0,:,:,:]
-            plt.plot(hidden_output[0,:,:],'.')
+            plt.plot(hidden_output[0,:,:],'.-')
             plt.savefig(file_dir+'/rnn_gan_pretrained/result_plot/epoch{0}_generated.png'.format(epoch+1))
             plt.clf()
             varidation_x_d=np.append(varidation_x,hidden_output,axis=0)
-            loss_d=D.test_on_batch([varidation_x_d],[varidation_y])
+            loss_d=D.test_on_batch([varidation_x_d],[[[0]],[[1]]]*signal_num)
             random_x=create_random_input(1)
-            loss_g=GAN.test_on_batch([random_x],[np.zeros([1,1,1])])
+            loss_g=GAN.test_on_batch([random_x],[[[0]]]*signal_num)
             print('\n----loss d----\n',loss_d)
             print('\n----loss g----\n',loss_g)
-            print('\n----predict gan----\n',GAN.predict([random_x]))
-            print('\n----predict d----\n',D.predict([varidation_x]))
             predict_d=D.predict([varidation_x])
-            predict_g=GAN.predict([random_x])
+            predict_g=D.predict([hidden_output])
+            print('\n----predict train signal----\n',predict_d[0][0][0])
+            print('\n----predict generate signal----\n',predict_g[0][0][0])
             mat_d.append(loss_d)
             mat_g.append(loss_g)
-            mat_pre_d.append(predict[0][0][0])
+            mat_pre_d.append(predict_d[0][0][0])
             mat_pre_g.append(predict_g[0][0][0])
             # sys.exit()
 
@@ -124,12 +124,12 @@ if __name__=='__main__':
     print('\n----trained D----\n')
     print('\n----trained G----\n')
     model_json=GAN.to_json()
-    f=open('model_gan.json','w')
+    f=open(file_dir+'/rnn_gan_pretrained/model_gan.json','w')
     json.dump(model_json,f)
-    GAN.save_weights(file_dir+'/rnn_gan_pretrained/gan_param{0}.hdf5'.format(today))
+    GAN.save_weights(file_dir+'/rnn_gan_pretrained/gan_param_epoch{0}.hdf5'.format(epoch+1))
     model_json=D.to_json()
     f=open(file_dir+'/rnn_gan_pretrained/model_dis.json','w')
     json.dump(model_json,f)
-    D.save_weights(file_dir+'/rnn_gan_pretrained/dis_param{0}.hdf5'.format(today))
+    D.save_weights(file_dir+'/rnn_gan_pretrained/dis_param_epoch{0}.hdf5'.format(epoch+1))
 
     K.clear_session()
