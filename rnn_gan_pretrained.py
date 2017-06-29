@@ -78,16 +78,17 @@ if __name__=='__main__':
     mat_g=[]
     mat_pre_d=[]
     mat_pre_g=[]
+    G.summary()
+    D.summary()
     for epoch in range(1000):
         np.random.shuffle(train_x)
         random_x=create_random_input(signal_num)
         hidden_output=get_hidden_layer([random_x])
         hidden_output=np.array(hidden_output)
         hidden_output=hidden_output[0,:,:,:]
-        random_x=create_random_input(signal_num*2)
-        history_d=D.train_on_batch([hidden_output],[[[1]]]*signal_num,sample_weight=None)
-        history_d=D.train_on_batch([train_x],[[[0]]]*signal_num,sample_weight=None)
-        history_gan=GAN.train_on_batch([random_x],[[[0]]]*signal_num*2,sample_weight=None)
+        history_d=D.train_on_batch([hidden_output],[hidden_y],sample_weight=None)
+        history_d=D.train_on_batch([train_x],[train_y],sample_weight=None)
+        history_gan=GAN.train_on_batch([random_x],[np.zeros([1,1,1])],sample_weight=None)
         history_g=G.train_on_batch([random_x],[train_x],sample_weight=None)
         if (epoch+1)%10==0:
             print('epoch:{0}'.format(epoch+1))
@@ -98,9 +99,9 @@ if __name__=='__main__':
             plt.savefig(file_dir+'/rnn_gan_pretrained/result_plot/epoch{0}_generated.png'.format(epoch+1))
             plt.clf()
             varidation_x_d=np.append(varidation_x,hidden_output,axis=0)
-            loss_d=D.test_on_batch([varidation_x_d],[[[0]],[[1]]]*signal_num)
+            loss_d=D.test_on_batch([varidation_x_d],[varidation_y])
             random_x=create_random_input(1)
-            loss_g=GAN.test_on_batch([random_x],[[[0]]]*signal_num)
+            loss_g=GAN.test_on_batch([random_x],[np.zeros([1,1,1])])
             print('\n----loss d----\n',loss_d)
             print('\n----loss g----\n',loss_g)
             predict_d=D.predict([varidation_x])
