@@ -14,7 +14,7 @@ import tensorflow as tf
 import numpy as np
 from keras import backend as K
 import matplotlib.pyplot as plt
-import os, sys, json, datetime, itertools
+import os, sys, json, datetime, itertools, time
 
 args=sys.argv
 cell_num=int(args[1])
@@ -44,12 +44,13 @@ def form_generator():
     generator.add(LSTM(input_shape=(signal_len,1),units=cell_num,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True))
     for i in range(layer_num-1):
         generator.add(LSTM(input_shape=(signal_len,1),units=cell_num,unit_forget_bias=True,recurrent_regularizer=l2(0.01),return_sequences=True))
-    generator.add(Dense(units=1))
+    generator.add(Dense(units=1,activation='sigmoid'))
 
     return generator
 
 
 if __name__=='__main__':
+    start = time.time()
     x = np.load(file_dir+'/dataset/ecg_five_mini.npy')
     global signal_len
     signal_len = x.shape[1]
@@ -147,5 +148,6 @@ if __name__=='__main__':
     np.save(file_dir+'/rnn_gan_parallel_train/predict_g.npy',predict_g_mat)
 
     K.clear_session()
-
+    dt = time.time() - start
+    print('finished time : {0}'.format(dt)+'[sec]')
     print('program finish')
