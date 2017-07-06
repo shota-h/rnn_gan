@@ -17,11 +17,12 @@ import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time
 
 args=sys.argv
-cell_num=int(args[1])
-layer_num=int(args[2])
-epoch_num=int(args[3])
-file_dir=os.path.abspath(os.path.dirname(__file__))
-
+cell_num = int(args[1])
+layer_num = int(args[2])
+epoch_num = int(args[3])
+file_dir = os.path.abspath(os.path.dirname(__file__))
+os.mkdir(file_dir+'/rnn_gan_parallel_train/layer{0}_cell{1}'.format(layer_num, cell_num))
+file_path = file_dir+'/rnn_gan_parallel_train/layer{0}_cell{1}
 
 def create_random_input(signal_num):
     return np.random.uniform(low=0,high=1,size=[signal_num,signal_len,1])
@@ -82,15 +83,15 @@ if __name__=='__main__':
 
 # save model
     model_json = GAN.to_json()
-    f=open(file_dir+'/rnn_gan_parallel_train/model_gan_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
+    f=open(file_path+'/model_gan_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
     json.dump(model_json,f)
 
     model_json = G.to_json()
-    f=open(file_dir+'/rnn_gan_parallel_train/model_g_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
+    f=open(file_path+'/model_g_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
     json.dump(model_json,f)
 
     model_json=D.to_json()
-    f=open(file_dir+'/rnn_gan_parallel_train/model_dis_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
+    f=open(file_path+'/model_dis_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
     json.dump(model_json,f)
 
     print('\n----train step----\n')
@@ -115,7 +116,7 @@ if __name__=='__main__':
 # save plot
             plt.plot(x[:,:,0].T)
             plt.plot(x_[0,:,0],'.-')
-            plt.savefig(file_dir+'/rnn_gan_parallel_train/epoch{0}_generated.png'.format(epoch+1))
+            plt.savefig(file_path+'/epoch{0}_generated.png'.format(epoch+1))
             plt.clf()
 
             x_z=np.append(varidation_x,x_,axis=0)
@@ -134,18 +135,18 @@ if __name__=='__main__':
             predict_d_mat.append(predict_d[0][0][0])
             predict_g_mat.append(predict_g[0][0][0])
 # save weight
-            GAN.save_weights(file_dir+'/rnn_gan_parallel_train/gan_param_layer{0}_cell{1}_epoch{2}.hdf5'.format(layer_num,cell_num,epoch+1))
-            D.save_weights(file_dir+'/rnn_gan_parallel_train/dis_param_layer{0}_cell{1}_epoch{2}.hdf5'.format(layer_num,cell_num,epoch+1))
-            G.save_weights(file_dir+'/rnn_gan_parallel_train/gene_param_layer{0}_cell{1}_epoch{2}.hdf5'.format(layer_num,cell_num,epoch+1))
+            GAN.save_weights(file_path+'/gan_param_layer{0}_cell{1}_epoch{2}.hdf5'.format(layer_num,cell_num,epoch+1))
+            D.save_weights(file_path+'/dis_param_layer{0}_cell{1}_epoch{2}.hdf5'.format(layer_num,cell_num,epoch+1))
+            G.save_weights(file_path+'/gene_param_layer{0}_cell{1}_epoch{2}.hdf5'.format(layer_num,cell_num,epoch+1))
 
     loss_d_mat=np.array(loss_d_mat)
     loss_g_mat=np.array(loss_g_mat)
-    np.save(file_dir+'/rnn_gan_parallel_train/loss_d_mat.npy',loss_d_mat)
-    np.save(file_dir+'/rnn_gan_parallel_train/loss_g_mat.npy',loss_g_mat)
+    np.save(file_path+'/loss_d_mat.npy',loss_d_mat)
+    np.save(file_path+'/loss_g_mat.npy',loss_g_mat)
     predict_d_mat=np.array(predict_d_mat)
     predict_g_mat=np.array(predict_g_mat)
-    np.save(file_dir+'/rnn_gan_parallel_train/predict_d.npy',predict_d_mat)
-    np.save(file_dir+'/rnn_gan_parallel_train/predict_g.npy',predict_g_mat)
+    np.save(file_path+'/predict_d.npy',predict_d_mat)
+    np.save(file_path+'/predict_g.npy',predict_g_mat)
 
     K.clear_session()
     dt = time.time() - start
