@@ -8,13 +8,14 @@ from keras.layers.recurrent import LSTM
 from keras.layers.wrappers import Bidirectional
 from keras.regularizers import l2
 from keras.models import model_from_json
+from Loss_DP import loss_dp
 import keras.optimizers
-# from keras.utils.vis_utils import plot_model
 import tensorflow as tf
 import numpy as np
 from keras import backend as K
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time
+
 
 args=sys.argv
 cell_num = int(args[1])
