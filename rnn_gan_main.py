@@ -54,44 +54,54 @@ def form_generator():
 
 
 if __name__=='__main__':
-    train_x=np.load(file_dir+'/dataset/ecg_only_mini.npy')
+    start = time.time()
+    x = np.load(file_dir+'/dataset/ecg_five_mini.npy')
+    x = x[:100,:,:]
     global signal_len
-    signal_len=train_x.shape[1]
-    varidation_x=train_x
-    # varidation_x=varidation_x.reshape(1,signal_len,1)
+    signal_len = x.shape[1]
+    # varidation_x = x
 
-    signal_num=int(train_x.shape[0])
+    signal_num = int(x.shape[0])
+    batch_num = 10
+    batch_size = int(signal_num/batch_num)
 
     print('signal_length',signal_len)
     print('\n----setup----\n')
-    G=form_generator()
+    adam1=keras.optimizers.Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+    # adam2=keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+# create model
+    G = form_generator()
+    # G.compile(optimizer=adam2,loss='mean_squared_error')
+    # G.compile(optimizer=adam2,loss=loss_dp(y_true,y_pred))
     G.summary()
-    # sys.exit()
-    D=form_discriminator()
-    # G=form_generator()
-    D.compile(optimizer='Adam',loss='binary_crossentropy')
+    D = form_discriminator()
+    D.compile(optimizer=adam1,loss='binary_crossentropy')
+    D.summary()
     D.trainable=False
-    # G.compile(optimizer='Adam',loss='mean_squared_error')
-    GAN=Sequential([G,D])
-    GAN.compile(optimizer='Adam',loss='binary_crossentropy')
+    GAN = Sequential([G,D])
+    GAN.compile(optimizer=adam1,loss='binary_crossentropy')
+    GAN.summary()
+
+    v_y = np.append(np.zeros([1,1,1]),np.ones([1,1,1]),axis=0)
+    loss_d_mat = []
+    loss_g_mat = []
+    predict_d_mat = []
+    predict_g_mat = []
+
+# save model
+    model_json = GAN.to_json()
+    f=open(file_path+'/model_gan_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
+    json.dump(model_json,f)
+
+    model_json = G.to_json()
+    f=open(file_path+'/model_g_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
+    json.dump(model_json,f)
+
+    model_json=D.to_json()
+    f=open(file_path+'/model_dis_layer{0}_cell{1}.json'.format(layer_num,cell_num),'w')
+    json.dump(model_json,f)
 
     print('\n----train step----\n')
-    hidden_y=np.ones([signal_num,1,1])
-    train_y=np.zeros([signal_num,1,1])
-    random_y=np.zeros([signal_num*2,1,1])
-    varidation_y=np.zeros([1,1,1])
-    varidation_y=np.append(varidation_y,np.ones([1,1,1]),axis=0)
-    mat_d=[]
-    mat_g=[]
-    mat_pre_d=[]
-    mat_pre_g=[]
-    # save model
-    model_json=GAN.to_json()
-    f=open(file_dir+'/rnn_gan_main/model_gan_layer3_cell300.json','w')
-    json.dump(model_json,f)
-    model_json=D.to_json()
-    f=open(file_dir+'/rnn_gan_main/model_dis_layer3_cell300.json','w')
-    json.dump(model_json,f)
 
     for epoch in range(100000):
         np.random.shuffle(train_x)
