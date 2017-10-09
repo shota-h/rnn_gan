@@ -25,31 +25,37 @@ adam2 = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,
                               epsilon=1e-08, decay=0.0)
 sgd1 = keras.optimizers.SGD(lr=0.1, momentum=0.9, decay=0.0, nesterov=False)
 
+filedir = os.path.abspath(os.path.dirname(__file__))
+filepath = '{0}/{1}/{2}/layer{3}_cell{4}_{5}'\
+.format(filedir, code_name, data_name, l_num, c_num, today)
+if os.path.exists(filepath) is False:
+    os.makedirs(filepath)
+sys.path.append('{0}/keras-extra'.format(filedir)
+
+from utils.multi_gpu import make_parallel
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--code', type=str)
-parser.add_argument('--layer', type=int)
-parser.add_argument('--epoch', type=int)
-parser.add_argument('--data', type=str)
-parser.add_argument('--date', type=str)
+parser.add_argument('--code', type=str, help='code name')
+parser.add_argument('--layer', type=int, help='number of layers')
+parser.add_argument('--epoch', type=int, help='number of epoch')
+parser.add_argument('--data', type=str, help='data name')
+parser.add_argument('--date', type=str, help='date')
+parser.add_argument('--gpus', type=int, help='number of GPUs')
 args = parser.parse_args()
+
+
 code_name = args.code
 l_num = args.layer
 epoch_num = args.epoch
 data_name = args.data
 today = args.date
+ngpus = args.gpus
 i_dim = 1
 c_num = 200
-filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/{1}/{2}/layer{3}_cell{4}_{5}'\
-            .format(filedir, code_name[:-3], data_name, l_num, c_num, today)
-if os.path.exists(filepath) is False:
-    os.makedirs(filepath)
 
 
 def create_random_input(s_num):
-    random_data = np.random.uniform(low=0, high=1, size=[s_num, s_len, i_dim])
-    return random_data
+    return np.random.uniform(low=0, high=1, size=[s_num, s_len, i_dim])
 
 
 def passage_save(x_imp, x_noise, epoch, G, D, GAN):
@@ -79,7 +85,7 @@ def form_discriminator():
     D.add(Dense(units=1, activation='sigmoid'))
     D.add(Activation('sigmoid'))
     D.add(pooling.AveragePooling1D(pool_size=s_len, strides=None))
-    D.compile(optimizer=adam1, loss='binary_crossentropy')
+
     D.summary()
     print('form D')
     model_json = D.to_json()
@@ -107,18 +113,26 @@ def form_generator():
     return G
 
 
-def form_gan(G, D):
+def form_gan():
+    G = form_generator()
+    D = form_discriminator()
     D.trainable = False
     GAN = Sequential([G, D])
-    GAN.compile(optimizer=adam1, loss='binary_crossentropy')
     GAN.summary()
-    print('form GAN')
-
     model_json = GAN.to_json()
     with open('{0}/model_gan_layer{1}.json'.format(filepath, l_num), 'w') as f:
         f = json.dump(model_json, f)
 
-    return GAN
+    if ngpus > 1:
+        G = make_parallel(G, ngpus)
+        D = make_parallel(D, ngpus)
+        GAN = make_parallel(GAN, ngpus)
+    D.trainable = True
+    D.compile(optimizer=adam1, loss='binary_crossentropy')
+    GAN.compile(optimizer=adam1, loss='binary_crossentropy')
+    print('form GAN')
+
+    return G, D, GAN
 
 
 def main():
@@ -144,14 +158,12 @@ def main():
     plt.clf()
     print('signal_length', s_len)
     print('\n----setup----\n')
+
     with tf.Session() as sess:
         writer = tf.summary.FileWriter('{0}'.format(filepath), sess.graph)
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
-        G = form_generator()
-        D = form_discriminator()
-        D.trainable = False
-        GAN = form_gan(G, D)
+        G, D, GAN = form_gan()
 
         loss_d_mat = loss_g_mat = []
         pre_d_mat = pre_g_mat = []
