@@ -1,67 +1,109 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.integrate import odeint
 import sys
 
-H = 30
+H = 60.0
 ALPHA = np.sqrt(H/60.0)
 a = np.array([1.2, -5.0, 30.0, -7.5, 0.75])
 b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
-theta = np.array([-np.pi/3, -np.pi/12, 0, np.pi/12, np.pi/2])*ALPHA
+# theta = np.array([-np.pi/3.0, -np.pi/12.0, 0.0, np.pi/12.0, np.pi/2.0])*ALPHA
+theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
+A = 0.005
 f2 = 0.25
-A = 0.1
 length = 10000
-fs = 256
-dt = 1/fs
-w = 2*np.pi*dt*0.05
+fs = 512
+dt = 1.0/fs
+w = 2*np.pi/1.0
+
+
+def func(v, t, a, b, w, theta):
+    alpha = 1-np.sqrt(v[0]**2+v[1]**2)
+    Theta = np.arctan2(v[1], v[0])
+    dtheta = (Theta - theta) % (2.0*np.pi)
+    zbase = A*np.sin(2*np.pi*f2*t)
+    C = -np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2))
+    dx = alpha*v[0]-w*v[1]
+    dy = alpha*v[1]+w*v[0]
+    dz = C - (v[2]-zbase)
+    return [dx, dy, dz]
+
+
+def dfdt(x, y, z, zbase, w):
+    alpha = 1-np.sqrt(x**2+y**2)
+    Theta = np.arctan2(y, x)
+    dtheta = (Theta - theta) % (2.0*np.pi)
+    return [alpha*x - w*y, alpha*y + w*x, -1.0*np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2)) - (z-zbase)]
 
 
 def dxdt(x, y, w):
     alpha = 1-np.sqrt(x**2+y**2)
-    return alpha*x-w*y
+    return alpha*x - w*y
+
 
 def dydt(x, y, w):
     alpha = 1-np.sqrt(x**2+y**2)
-    return alpha*y+w*x
+    return alpha*y + w*x
 
 
-def dzdt(z, z0, Theta):
-    dtheta = (Theta - theta) % (2*np.pi)
-    C = np.sum(a*dtheta*np.exp(-dtheta**2/(2*b**2)))
-    return C - (z-z0)
+def dzdt(x, y, z, zbase):
+    Theta = np.arctan2(y, x)
+    dtheta = (Theta - theta) % (2.0*np.pi)
+    # C = -np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2))
+    return -1.0*np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2)) - (z-zbase)
 
 
 def runge(x0, y0, z0):
-    X = []
-    Y = []
-    Z = []
     x = x0
     y = y0
     z = z0
+    x1 = x0
+    y1 = y0
+    z1 = z0
+    X = [x]
+    Y = [y]
+    Z = [z]
+    X1 = [x]
+    Y1 = [y]
+    Z1 = [z]
     z0 = A*np.sin(2*np.pi*f2*np.arange(length)*dt)
     for t in range(length-1):
-        d1 = dxdt(x, y, w)
-        d2 = dxdt(x+d1*dt*0.5, y, w)
-        d3 = dxdt(x+d2*dt*0.5, y, w)
-        d4 = dxdt(x+d3*dt, y, w)
-        x += (d1 + 2*d2 + 2*d3 + d4)*(dt/6.0)
-        d1 = dydt(x, y, w)
-        d2 = dydt(x, y+d1*dt*0.5, w)
-        d3 = dydt(x, y+d2*dt*0.5, w)
-        d4 = dydt(x, y+d3*dt, w)
-        y += (d1 + 2*d2 + 2*d3 + d4)*(dt/6.0)
-        Theta = np.arctan2(y, x)
-        d1 = dzdt(z, z0[t], Theta)
-        d2 = dzdt(z+d1*dt*0.5, z0[t], Theta)
-        d3 = dzdt(z+d2*dt*0.5, z0[t], Theta)
-        d4 = dzdt(z+d3*dt, z0[t], Theta)
-        z += (d1 + 2*d2 + 2*d3 + d4)*(dt/6.0)
-        X.append(x)
-        Y.append(y)
-        Z.append(z)
-    # plt.plot(X,Y,'.')
-    # plt.show()
-    plt.plot(Z,'.-')
+        d1 = dfdt(x1, y1, z1, z0[t+1], w)
+        d2 = dfdt(x1+d1[0]*dt*0.5, y1+d1[1]*dt*0.5, z1+d1[2]*dt*0.5, z0[t+1], w)
+        d3 = dfdt(x1+d2[0]*dt*0.5, y1+d2[1]*dt*0.5, z1+d2[0]*dt*0.5, z0[t+1], w)
+        d4 = dfdt(x1+d3[0]*dt, y1+d3[0]*dt, z1+d3[0]*dt, z0[t+1], w)
+        x1 += (d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0)
+        y1 += (d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0)
+        z1 += (d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0)
+        X1.append(x1)
+        Y1.append(y1)
+        Z1.append(z1)
+        # dx1 = dxdt(x, y, w)
+        # dx2 = dxdt(x+dx1*dt*0.5, y+dx1*dt*0.5, w)
+        # dx3 = dxdt(x+dx2*dt*0.5, y+dx2*dt*0.5, w)
+        # dx4 = dxdt(x+dx3*dt, y+dx3*dt, w)
+        # dy1 = dydt(x, y, w)
+        # dy2 = dydt(x+dy1*dt*0.5, y+dy1*dt*0.5, w)
+        # dy3 = dydt(x+dy2*dt*0.5, y+dy2*dt*0.5, w)
+        # dy4 = dydt(x+dy3*dt, y+dy3*dt, w)
+        # x += (dx1 + 2*dx2 + 2*dx3 + dx4)*(dt/6.0)
+        # y += (dy1 + 2*dy2 + 2*dy3 + dy4)*(dt/6.0)
+        #
+        # d1 = dzdt(x, y, z, z0[t+1])
+        # d2 = dzdt(x+d1*dt*0.5, y+d1*dt*0.5, z+d1*dt*0.5, z0[t+1])
+        # d3 = dzdt(x+d2*dt*0.5, y+d2*dt*0.5, z+d2*dt*0.5, z0[t+1])
+        # d4 = dzdt(x+d3*dt, y+d3*dt, z+d3*dt, z0[t+1])
+        # z += (d1 + 2*d2 + 2*d3 + d4)*(dt/6.0)
+        # X.append(x)
+        # Y.append(y)
+        # Z.append(z)
+    # Z = Z[0:-1:2]
+    # Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
+    # plt.plot(Z,'-')
+    plt.plot(Z1,'-')
     plt.show()
+
 
 def main(x0, y0, z0):
     x = np.zeros([length, 1])
@@ -79,12 +121,14 @@ def main(x0, y0, z0):
             dtheta = (Theta - theta[i]) % (2*np.pi)
             z[t+1] += a[i]*dtheta*np.exp(-(dtheta**2)/(2*b[i]**2))
         z[t+1] = dt*(z[t+1] - (z[t] - z0[t])) + z[t]
-    # plt.plot(x,y,'.')
-    # plt.show()
     plt.plot(z[:],'.-')
     # plt.show()
 
 
 if __name__ == '__main__':
+    # runge(1.0, 0.0, -0.04)
+    runge(1.0, 0.0, 0.0)
+    # v0 = [1.0,0,0.04]
+    # t = np.arange(length)*dt
+    # v = odeint(func, v0, t, args=(a, b, w, theta))
     # main(0,-1,0)
-    runge(0,-1,0)
