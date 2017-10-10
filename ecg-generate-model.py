@@ -111,7 +111,7 @@ def detectpeaks(x, y, z, dtheta, fs_ecg):
     return ind
 
 
-def main(x0, y0, z0):
+def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     N = 256
     rr = rrprocess(0.1,0.25,0.01,0.01,1,60,1,1,N)
     ff = interpolate.interp1d(np.arange(N)/(N-1), rr)
