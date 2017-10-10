@@ -15,7 +15,6 @@ f2 = 0.25
 length = 10000
 fs = 512
 dt = 1.0/fs
-w = 2*np.pi/1.0
 
 
 def func(v, t, a, b, w, theta):
@@ -55,6 +54,7 @@ def dzdt(x, y, z, zbase):
 
 
 def runge(x0, y0, z0):
+    w = 2*np.pi/1.0
     x = x0
     y = y0
     z = z0
@@ -68,14 +68,18 @@ def runge(x0, y0, z0):
     Y1 = [y]
     Z1 = [z]
     z0 = A*np.sin(2*np.pi*f2*np.arange(length)*dt)
-    for t in range(length-1):
+    for t in np.arange(length-1):
         d1 = dfdt(x1, y1, z1, z0[t+1], w)
         d2 = dfdt(x1+d1[0]*dt*0.5, y1+d1[1]*dt*0.5, z1+d1[2]*dt*0.5, z0[t+1], w)
-        d3 = dfdt(x1+d2[0]*dt*0.5, y1+d2[1]*dt*0.5, z1+d2[0]*dt*0.5, z0[t+1], w)
-        d4 = dfdt(x1+d3[0]*dt, y1+d3[0]*dt, z1+d3[0]*dt, z0[t+1], w)
+        d3 = dfdt(x1+d2[0]*dt*0.5, y1+d2[1]*dt*0.5, z1+d2[2]*dt*0.5, z0[t+1], w)
+        d4 = dfdt(x1+d3[0]*dt, y1+d3[1]*dt, z1+d3[2]*dt, z0[t+1], w)
         x1 += (d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0)
         y1 += (d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0)
         z1 += (d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0)
+        if t == 0:
+            print((d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0))
+            print((d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0))
+            print((d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0))
         X1.append(x1)
         Y1.append(y1)
         Z1.append(z1)
@@ -127,7 +131,7 @@ def main(x0, y0, z0):
 
 if __name__ == '__main__':
     # runge(1.0, 0.0, -0.04)
-    runge(1.0, 0.0, 0.0)
+    runge(1.0, 0.0, 0.04)
     # v0 = [1.0,0,0.04]
     # t = np.arange(length)*dt
     # v = odeint(func, v0, t, args=(a, b, w, theta))
