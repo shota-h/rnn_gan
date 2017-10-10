@@ -17,6 +17,7 @@ fs = 512
 dt = 1.0/fs
 
 
+
 def func(v, t, a, b, w, theta):
     alpha = 1-np.sqrt(v[0]**2+v[1]**2)
     Theta = np.arctan2(v[1], v[0])
@@ -27,13 +28,6 @@ def func(v, t, a, b, w, theta):
     dy = alpha*v[1]+w*v[0]
     dz = C - (v[2]-zbase)
     return [dx, dy, dz]
-
-
-def dfdt(x, y, z, zbase, w):
-    alpha = 1-np.sqrt(x**2+y**2)
-    Theta = np.arctan2(y, x)
-    dtheta = (Theta - theta) % (2.0*np.pi)
-    return [alpha*x - w*y, alpha*y + w*x, -1.0*np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2)) - (z-zbase)]
 
 
 def dxdt(x, y, w):
@@ -53,7 +47,49 @@ def dzdt(x, y, z, zbase):
     return -1.0*np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2)) - (z-zbase)
 
 
+def dfdt(x, y, z, zbase, w, i=1):
+    alpha = 1-np.sqrt(x**2+y**2)
+    Theta = np.arctan2(y, x)
+    dtheta = (Theta - theta) % (2.0*np.pi)
+    dtheta[dtheta > np.pi] = dtheta[dtheta > np.pi] - (2*np.pi)
+    return [alpha*x - w*y, alpha*y + w*x, -1.0*np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2)) - (z-zbase)]
+
+
+def rrprocess(flo, fhi, flo_std, fhi_std, flfh_ratio, hr_mean, hr_std, fs_rr, n):
+    w1 = 2*np.pi*flo
+    w2 = 2*np.pi*fhi
+    c1 = 2*np.pi*flo_std
+    c2 = 2*np.pi*fhi_std
+    sig1 = flfh_ratio
+    sig2 = 1
+    rrmean = 60/hr_mean
+    rrstd = 60*hr_std/(hr_mean**2)
+
+    df = fs_rr/n
+    w = np.arange(length)*2*np.pi*df
+    dw1 = w-w1
+    dw2 = w-w2
+
+    Hw1 = sig1*np.exp(-0.5*(dw1/c1)**2)/(np.sqrt(2*np.pi*c1**2))
+    Hw2 = sig2*np.exp(-0.5*(dw2/c2)**2)/(np.sqrt(2*np.pi*c2**2))
+    Hw = Hw1 + Hw2
+    Hw0 = [Hw[:n/2],Hw[n/2:0:-1]]
+    Sw = fs_rr/2*np.sqrt(Hw0)
+
+    ph0 = 2*np.pi*np.random.uniform(low=0,high=1,size=(n/2-1))
+    ph = [0, ph0, 0, ph0[-1:0:-1]]
+    SwC = Sw * exp(i*ph)
+    x = (1/n)*(np.fft.ifft(SwC)).real
+    x_std = np.std(x)
+    ratio = rr_std/x_std
+    return rr_mean + x*ratio
+
+
 def runge(x0, y0, z0):
+    rr = rrprocess(1,2,1,1,1,60,1,1,256)
+    plt.plot(rr)
+    plt.show()
+    sys.exit()
     w = 2*np.pi/1.0
     x = x0
     y = y0
@@ -73,13 +109,14 @@ def runge(x0, y0, z0):
         d2 = dfdt(x1+d1[0]*dt*0.5, y1+d1[1]*dt*0.5, z1+d1[2]*dt*0.5, z0[t+1], w)
         d3 = dfdt(x1+d2[0]*dt*0.5, y1+d2[1]*dt*0.5, z1+d2[2]*dt*0.5, z0[t+1], w)
         d4 = dfdt(x1+d3[0]*dt, y1+d3[1]*dt, z1+d3[2]*dt, z0[t+1], w)
+        if t == 0:
+            dfdt(x1, y1, z1, z0[t+1], w, i=0)
+            # print((d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0))
+            # print((d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0))
+            # print((d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0))
         x1 += (d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0)
         y1 += (d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0)
         z1 += (d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0)
-        if t == 0:
-            print((d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0))
-            print((d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0))
-            print((d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0))
         X1.append(x1)
         Y1.append(y1)
         Z1.append(z1)
