@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.integrate import odeint
 from scipy import signal, interpolate
-import sys
+import sys, os
 
 H = 60.0
 ALPHA = np.sqrt(H/60.0)
@@ -12,10 +12,15 @@ b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
 theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-length = 1000
+length = 100000
 fs = 512
 fs2 = 256
 dt = 1.0/fs
+
+filedir = os.path.abspath(os.path.dirname(__file__))
+filepath = '{0}/ecg-generate-model'.format(filedir)
+if os.path.exists(filepath) is False:
+    os.makedirs(filepath)
 
 
 def func(v, t, a, b, w, theta):
@@ -106,7 +111,7 @@ def detectpeaks(x, y, z, dtheta, fs_ecg):
     return ind
 
 
-def runge(x0, y0, z0):
+def main(x0, y0, z0):
     N = 256
     rr = rrprocess(0.1,0.25,0.01,0.01,1,60,1,1,N)
     ff = interpolate.interp1d(np.arange(N)/(N-1), rr)
@@ -134,32 +139,13 @@ def runge(x0, y0, z0):
     Y = Y[0:-1:2]
     Z = Z[0:-1:2]
     Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
-    ind = detectpeaks(X, Y, Z, theta, fs2)
-    plt.plot(ind)
-    plt.plot(Z,'-')
-    plt.show()
-    np.save('{0}/generate-z.npy'Z)
-
-
-def main(x0, y0, z0):
-    x = np.zeros([length, 1])
-    y = np.zeros([length, 1])
-    z = np.zeros([length, 1])
-    x[0] = x0
-    y[0] = y0
-    z[0] = z0
-    z0 = A*np.sin(2*np.pi*f2*np.arange(length)*dt)
-    for t in range(length-1):
-        x[t+1] = (1+dt*(1-np.sqrt(x[t]**2 + y[t]**2)))*x[t] - dt*w*y[t]
-        y[t+1] = (1+dt*(1-np.sqrt(x[t]**2 + y[t]**2)))*y[t] + dt*w*x[t]
-        Theta = np.arctan2(y[t], x[t])
-        for i in range(5):
-            dtheta = (Theta - theta[i]) % (2*np.pi)
-            z[t+1] += a[i]*dtheta*np.exp(-(dtheta**2)/(2*b[i]**2))
-        z[t+1] = dt*(z[t+1] - (z[t] - z0[t])) + z[t]
-    plt.plot(z[:],'.-')
+    peaks = detectpeaks(X, Y, Z, theta, fs2)
+    # plt.plot(peaks)
+    # plt.plot(Z,'-')
     # plt.show()
+    np.save('{0}/generate-ecg.npy'.format(filepath), Z)
+    np.save('{0}/ecg-peak.npy'.format(filepath), peaks)
 
 
 if __name__ == '__main__':
-    runge(1.0, 0.0, 0.04)
+    main(1.0, 0.0, 0.04)
