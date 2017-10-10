@@ -9,14 +9,13 @@ H = 60.0
 ALPHA = np.sqrt(H/60.0)
 a = np.array([1.2, -5.0, 30.0, -7.5, 0.75])
 b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
-# theta = np.array([-np.pi/3.0, -np.pi/12.0, 0.0, np.pi/12.0, np.pi/2.0])*ALPHA
 theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-length = 10000
+length = 1000
 fs = 512
+fs2 = 256
 dt = 1.0/fs
-
 
 
 def func(v, t, a, b, w, theta):
@@ -29,23 +28,6 @@ def func(v, t, a, b, w, theta):
     dy = alpha*v[1]+w*v[0]
     dz = C - (v[2]-zbase)
     return [dx, dy, dz]
-
-
-def dxdt(x, y, w):
-    alpha = 1-np.sqrt(x**2+y**2)
-    return alpha*x - w*y
-
-
-def dydt(x, y, w):
-    alpha = 1-np.sqrt(x**2+y**2)
-    return alpha*y + w*x
-
-
-def dzdt(x, y, z, zbase):
-    Theta = np.arctan2(y, x)
-    dtheta = (Theta - theta) % (2.0*np.pi)
-    # C = -np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2))
-    return -1.0*np.sum(a*dtheta*np.exp(-0.5*(dtheta/b)**2)) - (z-zbase)
 
 
 def dfdt(x, y, z, zbase, w, i=1):
@@ -90,6 +72,40 @@ def rrprocess(flo, fhi, flo_std, fhi_std, flfh_ratio, hr_mean, hr_std, fs_rr, n)
     return rrmean + x*ratio
 
 
+def detectpeaks(x, y, z, dtheta, fs_ecg):
+    N = z.shape[0]
+    ipeaks = np.zeros(N)
+    theta = np.arctan2(y, x)
+    ind0 = np.zeros(N)
+    for i in range(N-1):
+        a = (theta[i] <= dtheta) & (dtheta <= theta[i+1])
+        j = np.where(a == True)
+        if len(j[0]) != 0:
+            d1 = dtheta[j[0]] - theta[i]
+            d2 = theta[i+1] -dtheta[j[0]]
+            if d1 < d2:
+                ind0[i] = j[0] + 1
+            else:
+                ind0[i+1] = j[0] + 1
+    d = np.ceil(fs_ecg/64)
+    d = np.max([2,d])
+    ind = np.zeros(N)
+    zext = [np.min(z), np.max(z), np.min(z), np.max(z), np.min(z)]
+    sext = [1, -1, 1, -1, 1]
+    for i in range(5):
+        ind1 = np.where(ind0 == (i+1))
+        n = len(ind1[0])
+        Z = np.ones([n,int(2*d+1)])*zext[i]*sext[i]
+        for j in np.arange(-d,d):
+            k = (0 <= ind1+j) & (ind1+j <= N-1)
+            A = (ind1[0][k[0]]+j).astype('int32')
+            Z[k[0],int(d+j)] = z[A]*sext[i]
+        ivmax = np.argmax(Z, axis=1)
+        iext = ind1 + ivmax-d
+        ind[iext[0].astype('int32')] = i+1
+    return ind
+
+
 def runge(x0, y0, z0):
     N = 256
     rr = rrprocess(0.1,0.25,0.01,0.01,1,60,1,1,N)
@@ -114,11 +130,15 @@ def runge(x0, y0, z0):
         X.append(x)
         Y.append(y)
         Z.append(z)
+    X = X[0:-1:2]
+    Y = Y[0:-1:2]
     Z = Z[0:-1:2]
     Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
-    # plt.plot(Z,'-')
+    ind = detectpeaks(X, Y, Z, theta, fs2)
+    plt.plot(ind)
     plt.plot(Z,'-')
     plt.show()
+    np.save('{0}/generate-z.npy'Z)
 
 
 def main(x0, y0, z0):
@@ -142,9 +162,4 @@ def main(x0, y0, z0):
 
 
 if __name__ == '__main__':
-    # runge(1.0, 0.0, -0.04)
     runge(1.0, 0.0, 0.04)
-    # v0 = [1.0,0,0.04]
-    # t = np.arange(length)*dt
-    # v = odeint(func, v0, t, args=(a, b, w, theta))
-    # main(0,-1,0)
