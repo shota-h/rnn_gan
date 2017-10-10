@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.integrate import odeint
+from scipy import signal, interpolate
 import sys
 
 H = 60.0
@@ -73,76 +74,50 @@ def rrprocess(flo, fhi, flo_std, fhi_std, flfh_ratio, hr_mean, hr_std, fs_rr, n)
     Hw1 = sig1*np.exp(-0.5*(dw1/c1)**2)/(np.sqrt(2*np.pi*c1**2))
     Hw2 = sig2*np.exp(-0.5*(dw2/c2)**2)/(np.sqrt(2*np.pi*c2**2))
     Hw = Hw1 + Hw2
-    Hw0 = [Hw[:n/2],Hw[n/2:0:-1]]
+    Hw0 = np.append(Hw[:int(n/2)],Hw[int(n/2)-1::-1],axis=0)
     Sw = fs_rr/2*np.sqrt(Hw0)
 
-    ph0 = 2*np.pi*np.random.uniform(low=0,high=1,size=(n/2-1))
-    ph = [0, ph0, 0, ph0[-1:0:-1]]
-    SwC = Sw * exp(i*ph)
+    ph0 = 2*np.pi*np.random.uniform(low=0,high=1,size=(int(n/2-1)))
+    ph = np.zeros(ph0.shape[0]*2+2)
+    ph[1:ph0.shape[0]+1] = ph0
+    ph[ph0.shape[0]+2:] = -ph0[-1::-1]
+
+    Sw = np.array(Sw)
+    SwC = Sw * np.exp(-1j*ph)
     x = (1/n)*(np.fft.ifft(SwC)).real
     x_std = np.std(x)
-    ratio = rr_std/x_std
-    return rr_mean + x*ratio
+    ratio = rrstd/x_std
+    return rrmean + x*ratio
 
 
 def runge(x0, y0, z0):
-    rr = rrprocess(1,2,1,1,1,60,1,1,256)
-    plt.plot(rr)
-    plt.show()
-    sys.exit()
-    w = 2*np.pi/1.0
+    N = 256
+    rr = rrprocess(0.1,0.25,0.01,0.01,1,60,1,1,N)
+    ff = interpolate.interp1d(np.arange(N)/(N-1), rr)
+    rr = ff(np.arange(N*fs)/(N*fs-1))
+    w = 2*np.pi/(rr)
     x = x0
     y = y0
     z = z0
-    x1 = x0
-    y1 = y0
-    z1 = z0
     X = [x]
     Y = [y]
     Z = [z]
-    X1 = [x]
-    Y1 = [y]
-    Z1 = [z]
     z0 = A*np.sin(2*np.pi*f2*np.arange(length)*dt)
     for t in np.arange(length-1):
-        d1 = dfdt(x1, y1, z1, z0[t+1], w)
-        d2 = dfdt(x1+d1[0]*dt*0.5, y1+d1[1]*dt*0.5, z1+d1[2]*dt*0.5, z0[t+1], w)
-        d3 = dfdt(x1+d2[0]*dt*0.5, y1+d2[1]*dt*0.5, z1+d2[2]*dt*0.5, z0[t+1], w)
-        d4 = dfdt(x1+d3[0]*dt, y1+d3[1]*dt, z1+d3[2]*dt, z0[t+1], w)
-        if t == 0:
-            dfdt(x1, y1, z1, z0[t+1], w, i=0)
-            # print((d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0))
-            # print((d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0))
-            # print((d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0))
-        x1 += (d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0)
-        y1 += (d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0)
-        z1 += (d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0)
-        X1.append(x1)
-        Y1.append(y1)
-        Z1.append(z1)
-        # dx1 = dxdt(x, y, w)
-        # dx2 = dxdt(x+dx1*dt*0.5, y+dx1*dt*0.5, w)
-        # dx3 = dxdt(x+dx2*dt*0.5, y+dx2*dt*0.5, w)
-        # dx4 = dxdt(x+dx3*dt, y+dx3*dt, w)
-        # dy1 = dydt(x, y, w)
-        # dy2 = dydt(x+dy1*dt*0.5, y+dy1*dt*0.5, w)
-        # dy3 = dydt(x+dy2*dt*0.5, y+dy2*dt*0.5, w)
-        # dy4 = dydt(x+dy3*dt, y+dy3*dt, w)
-        # x += (dx1 + 2*dx2 + 2*dx3 + dx4)*(dt/6.0)
-        # y += (dy1 + 2*dy2 + 2*dy3 + dy4)*(dt/6.0)
-        #
-        # d1 = dzdt(x, y, z, z0[t+1])
-        # d2 = dzdt(x+d1*dt*0.5, y+d1*dt*0.5, z+d1*dt*0.5, z0[t+1])
-        # d3 = dzdt(x+d2*dt*0.5, y+d2*dt*0.5, z+d2*dt*0.5, z0[t+1])
-        # d4 = dzdt(x+d3*dt, y+d3*dt, z+d3*dt, z0[t+1])
-        # z += (d1 + 2*d2 + 2*d3 + d4)*(dt/6.0)
-        # X.append(x)
-        # Y.append(y)
-        # Z.append(z)
-    # Z = Z[0:-1:2]
-    # Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
+        d1 = dfdt(x, y, z, z0[t+1], w[t])
+        d2 = dfdt(x+d1[0]*dt*0.5, y+d1[1]*dt*0.5, z+d1[2]*dt*0.5, z0[t], w[t])
+        d3 = dfdt(x+d2[0]*dt*0.5, y+d2[1]*dt*0.5, z+d2[2]*dt*0.5, z0[t], w[t])
+        d4 = dfdt(x+d3[0]*dt, y+d3[1]*dt, z+d3[2]*dt, z0[t], w[t])
+        x += (d1[0] + 2*d2[0] + 2*d3[0] + d4[0])*(dt/6.0)
+        y += (d1[1] + 2*d2[1] + 2*d3[1] + d4[1])*(dt/6.0)
+        z += (d1[2] + 2*d2[2] + 2*d3[2] + d4[2])*(dt/6.0)
+        X.append(x)
+        Y.append(y)
+        Z.append(z)
+    Z = Z[0:-1:2]
+    Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
     # plt.plot(Z,'-')
-    plt.plot(Z1,'-')
+    plt.plot(Z,'-')
     plt.show()
 
 
