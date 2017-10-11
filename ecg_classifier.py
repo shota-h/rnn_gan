@@ -6,20 +6,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time, argparse
 
-
 config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))
 session = tf.Session(config=config)
 K.set_session(session)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--code', type=str)
+parser.add_argument('--code', type=str, help='code name')
+parser.add_argument('--gpus', type=int, help='number of GPUs')
 args = parser.parse_args()
-code_name = args.code
+code = args.code
+ngpus = args.gpus
 
 filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/{1}'.format(filedir, code_name[:-3])
-if os.path.exists(filepath) is False:
-    os.makedirs(filepath)
+sys.path.append('{0}/keras-extras'.format(filedir))
+print(sys.path)
+from utils.multi_gpu import make_parallel
 
 seq_length = 96
 feature_count = 1
@@ -49,7 +50,7 @@ def load_data():
     return x, v_x
 
 
-def load_data_aug():
+def load_data_aug(ndata = 0):
     x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
     x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
     x1 = np.append(x1, np.ones([x1.shape[0], 1]), axis=1)
@@ -57,15 +58,17 @@ def load_data_aug():
     x2 = np.append(x2, np.zeros([x2.shape[0], 1]), axis=1)
     x2 = np.append(x2, np.ones([x2.shape[0], 1]), axis=1)
     v_x = np.append(x1[50:60], x2[50:60], axis=0)
-    buff = np.load('{0}/dataset/normal_gene_ecg.npy'.format(filedir))
+    # buff = np.load('{0}/dataset/normal_gene_ecg.npy'.format(filedir))
+    buff = np.load('{0}/dataset/ecg_normal_aug.npy'.format(filedir))
     buff = np.append(buff, np.ones([buff.shape[0], 1]), axis=1)
     buff = np.append(buff, np.zeros([buff.shape[0], 1]), axis=1)
-    x1 = np.append(x1[:50], buff, axis=0)
-    buff = np.load('{0}/dataset/abnormal_gene_ecg.npy'.format(filedir))
+    x1 = np.append(x1[:50], buff[:ndata], axis=0)
+    buff = np.load('{0}/dataset/ecg_abnormal_aug.npy'.format(filedir))
     buff = np.append(buff, np.zeros([buff.shape[0], 1]), axis=1)
     buff = np.append(buff, np.ones([buff.shape[0], 1]), axis=1)
-    x2 = np.append(x2[:50], buff, axis=0)
+    x2 = np.append(x2[:50], buff[:ndata], axis=0)
     x = np.append(x1, x2, axis=0)
+    print(x.shape)
     return x, v_x
 
 
@@ -89,9 +92,9 @@ def load_data_hmm():
     return x, v_x
 
 
-def dataset_load(flag):
+def dataset_load(flag, ndata):
     if flag == 0:
-        x,v_x = load_data_aug()
+        x,v_x = load_data_aug(ndata)
         savepath = '{0}/mixdata'.format(filepath)
         if os.path.exists(savepath) is False:
             os.makedirs(savepath)
@@ -108,14 +111,21 @@ def dataset_load(flag):
     return x, v_x, savepath
 
 
-def train_model():
-    x, v_x, savepath = dataset_load(flag=2)
+def train_model(model, ndata = 0):
+    global filepath
+    filepath = '{0}/{1}/ndata{2}'.format(filedir, code, str(ndata))
+    if os.path.exists(filepath) is False:
+        os.makedirs(filepath)
+    flag = 0
+    x, v_x, savepath = dataset_load(flag, ndata)
     b_size = int(x.shape[0]/n_batch)
-    model = lstm_classifier()
-    model.summary()
-    with open('{0}/model.json'.format(savepath), 'w') as f:
-        model_json = model.to_json()
-        json.dump(model_json, f)
+    # model = lstm_classifier()
+    # model.summary()
+    # with open('{0}/model.json'.format(savepath), 'w') as f:
+    #     model_json = model.to_json()
+    #     json.dump(model_json, f)
+
+
     model.compile(optimizer='adam', loss='binary_crossentropy')
 
     with tf.Session() as sess:
@@ -123,10 +133,10 @@ def train_model():
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
         for i, j in itertools.product(range(epoch), range(n_batch)):
-            if j == 0
+            if j == 0:
                 np.random.shuffle(x)
             train_loss = model.train_on_batch([x[j*b_size:(j+1)*b_size, :-2,None]], [x[j*b_size:(j+1)*b_size, -2:]])
-            if (i+1)%10 == 0:
+            if (i+1)%100 == 0 and j == 0:
                 print('epoch:{0}'.format(i+1))
                 test_loss = model.test_on_batch([v_x[:, :-2, None]], [v_x[:, -2:]])
                 summary =  tf.Summary(value=[
@@ -135,7 +145,6 @@ def train_model():
                                       tf.Summary.Value(tag='loss_test',
                                                        simple_value=test_loss),])
                 writer.add_summary(summary, i+1)
-                model.save_weights('{0}/param_epoch{1}.hdf5'.format(savepath, i+1))
         model.save_weights('{0}/param.hdf5'.format(savepath))
 
 
@@ -177,7 +186,22 @@ def predict_model(loadpath):
 
 
 def main():
-    train_model()
+    initpath = '{0}/{1}'.format(filedir, code)
+    if os.path.exists(initpath) is False:
+        os.makedirs(initpath)
+    model = lstm_classifier()
+    with open('{0}/model.json'.format(initpath), 'w') as f:
+        model_json = model.to_json()
+        json.dump(model_json, f)
+
+    if ngpus > 1:
+        model = make_parallel(model, ngpus)
+    for ndata in range(0, 10001,100):
+        if ndata == 0:
+            model.save_weights('{0}/param_init.hdf5'.format(initpath))
+        else:
+            model.load_weights('{0}/param_init.hdf5'.format(initpath))
+        train_model(model, ndata)
     # predict_model(loadpath='{0}/mixdata'.format(filepath))
 
 
