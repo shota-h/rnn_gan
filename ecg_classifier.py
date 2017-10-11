@@ -28,6 +28,7 @@ class_count = 2
 c_num = 20
 epoch = 2000
 n_batch = 10
+B_size = 50
 
 
 def lstm_classifier():
@@ -136,6 +137,43 @@ def train_model(model, ndata = 0):
             if j == 0:
                 np.random.shuffle(x)
             train_loss = model.train_on_batch([x[j*b_size:(j+1)*b_size, :-2,None]], [x[j*b_size:(j+1)*b_size, -2:]])
+            if (i+1)%100 == 0 and j == 0:
+                print('epoch:{0}'.format(i+1))
+                test_loss = model.test_on_batch([v_x[:, :-2, None]], [v_x[:, -2:]])
+                summary =  tf.Summary(value=[
+                                      tf.Summary.Value(tag='loss_train',
+                                                       simple_value=train_loss),
+                                      tf.Summary.Value(tag='loss_test',
+                                                       simple_value=test_loss),])
+                writer.add_summary(summary, i+1)
+        model.save_weights('{0}/param.hdf5'.format(savepath))
+
+
+def train_model_size_fixed(model, ndata = 0):
+    global filepath
+    filepath = '{0}/{1}/ndata{2}'.format(filedir, code, str(ndata))
+    if os.path.exists(filepath) is False:
+        os.makedirs(filepath)
+    flag = 0
+    x, v_x, savepath = dataset_load(flag, ndata)
+    N_batch = int(x.shape[0]/B_size)
+    # model = lstm_classifier()
+    # model.summary()
+    # with open('{0}/model.json'.format(savepath), 'w') as f:
+    #     model_json = model.to_json()
+    #     json.dump(model_json, f)
+
+
+    model.compile(optimizer='adam', loss='binary_crossentropy')
+
+    with tf.Session() as sess:
+        writer = tf.summary.FileWriter('{0}'.format(savepath), sess.graph)
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        for i, j in itertools.product(range(epoch), range(N_batch)):
+            if j == 0:
+                np.random.shuffle(x)
+            train_loss = model.train_on_batch([x[j*B_size:(j+1)*B_size, :-2,None]], [x[j*B_size:(j+1)*B_size, -2:]])
             if (i+1)%100 == 0 and j == 0:
                 print('epoch:{0}'.format(i+1))
                 test_loss = model.test_on_batch([v_x[:, :-2, None]], [v_x[:, -2:]])
