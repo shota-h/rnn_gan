@@ -19,7 +19,6 @@ ngpus = args.gpus
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append('{0}/keras-extras'.format(filedir))
-print(sys.path)
 from utils.multi_gpu import make_parallel
 
 seq_length = 96
@@ -186,8 +185,8 @@ def train_model_size_fixed(model, ndata = 0):
         model.save_weights('{0}/param.hdf5'.format(savepath))
 
 
-def predict_model(loadpath):
-    epoch = 1000
+def predict_model(loadpath, ndata = 0):
+    epoch = 2000
     x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
     x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
 
@@ -195,7 +194,7 @@ def predict_model(loadpath):
         model = json.load(f)
     model = model_from_json(model)
     model.summary()
-    model.load_weights('{0}/param_epoch{1}.hdf5'.format(loadpath, epoch))
+    model.load_weights('{0}/ndata{1}/param.hdf5'.format(loadpath, ndata))
     out1_train = model.predict_on_batch([x1[:50, :, None]])
     out2_train = model.predict_on_batch([x2[:50, :, None]])
     out1_test = model.predict_on_batch([x1[50:, :, None]])
@@ -205,13 +204,7 @@ def predict_model(loadpath):
                   np.sum(out2_train[:,0]<out2_train[:,1])/x2[:50].shape[0]]
     disc_test = [np.sum(out1_test[:,0]>out1_test[:,1])/x1[50:].shape[0],
                  np.sum(out2_test[:,0]<out2_test[:,1])/x2[50:].shape[0]]
-    print(disc_train[0])
-    print(disc_train[1])
-    print((disc_train[0]+disc_train[1])/2)
-    print(disc_test[0])
-    print(disc_test[1])
-    print((disc_test[0]+disc_test[1])/2)
-    with open('{0}/predict_result.csv'.format(loadpath), 'w') as f:
+    with open('{0}/ndata{1}/predict_result.csv'.format(loadpath, ndata), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(out1_train)
         writer.writerow(out2_train)
@@ -223,25 +216,32 @@ def predict_model(loadpath):
         writer.writerow(np.array([(disc_test[0]+disc_test[1])/2]))
 
 
-def main():
+def main(flag):
     initpath = '{0}/{1}'.format(filedir, code)
     if os.path.exists(initpath) is False:
         os.makedirs(initpath)
-    model = lstm_classifier()
-    with open('{0}/model.json'.format(initpath), 'w') as f:
-        model_json = model.to_json()
-        json.dump(model_json, f)
+        
+    if flag == 'train':
+        print('Call train model')
+        model = lstm_classifier()
+        with open('{0}/model.json'.format(initpath), 'w') as f:
+            model_json = model.to_json()
+            json.dump(model_json, f)
 
-    if ngpus > 1:
-        model = make_parallel(model, ngpus)
-    for ndata in range(0, 10001,100):
-        if ndata == 0:
-            model.save_weights('{0}/param_init.hdf5'.format(initpath))
-        else:
-            model.load_weights('{0}/param_init.hdf5'.format(initpath))
-        train_model(model, ndata)
-    # predict_model(loadpath='{0}/mixdata'.format(filepath))
-
+        if ngpus > 1:
+            model = make_parallel(model, ngpus)
+        for ndata in range(0, 10001,100):
+            if ndata == 0:
+                model.save_weights('{0}/param_init.hdf5'.format(initpath))
+            else:
+                model.load_weights('{0}/param_init.hdf5'.format(initpath))
+            train_model(model, ndata)
+    elif flag == 'predict':
+        print('Call predict model')
+        for ndata in range(0, 10001, 100):
+            predict_model(loadpath = initpath, ndata = ndata)
+    else:
+        print('Do not call anyone')
 
 if __name__=='__main__':
     main()
