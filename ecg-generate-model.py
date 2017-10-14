@@ -12,7 +12,7 @@ b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
 theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-length = 100000
+length = 10000
 fs = 512
 fs2 = 256
 dt = 1.0/fs
@@ -141,7 +141,16 @@ def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
     peaks = detectpeaks(X, Y, Z, theta, fs2)
     # plt.plot(peaks)
-    # plt.plot(Z,'-')
+    plt.figure()
+    ax = plt.subplot(111, projection='3d')
+    ax.plot(X[:400], Y[:400], Z[:400])
+    plt.savefig('{0}/trajectory.tif'.format(filepath))
+    plt.close()
+    plt.plot(Z,'-')
+    plt.savefig('{0}/output.tif'.format(filepath))
+    plt.close()
+    plt.plot(Z[100:500],'-')
+    plt.savefig('{0}/output_zoom.tif'.format(filepath))
     # plt.show()
     np.save('{0}/generate-ecg.npy'.format(filepath), Z)
     np.save('{0}/ecg-peak.npy'.format(filepath), peaks)
