@@ -1,10 +1,11 @@
 from keras.layers import Input, LSTM, Dense
 from keras.models import Model
 from keras import backend as K
+from keras.models import model_from_json
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-import os, sys, json, datetime, itertools, time, argparse
+import os, sys, json, datetime, itertools, time, argparse, csv
 
 config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))
 session = tf.Session(config=config)
@@ -25,7 +26,7 @@ seq_length = 96
 feature_count = 1
 class_count = 2
 c_num = 20
-epoch = 2000
+epoch = 100
 n_batch = 10
 B_size = 50
 
@@ -52,9 +53,9 @@ def load_data():
 
 def load_data_aug(ndata = 0):
     x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
-    x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
     x1 = np.append(x1, np.ones([x1.shape[0], 1]), axis=1)
     x1 = np.append(x1, np.zeros([x1.shape[0], 1]), axis=1)
+    x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
     x2 = np.append(x2, np.zeros([x2.shape[0], 1]), axis=1)
     x2 = np.append(x2, np.ones([x2.shape[0], 1]), axis=1)
     v_x = np.append(x1[50:60], x2[50:60], axis=0)
@@ -136,7 +137,7 @@ def train_model(model, ndata = 0):
             if j == 0:
                 np.random.shuffle(x)
             train_loss = model.train_on_batch([x[j*b_size:(j+1)*b_size, :-2,None]], [x[j*b_size:(j+1)*b_size, -2:]])
-            if (i+1)%100 == 0 and j == 0:
+            if (i+1)%1 == 0 and j == 0:
                 print('epoch:{0}'.format(i+1))
                 test_loss = model.test_on_batch([v_x[:, :-2, None]], [v_x[:, -2:]])
                 summary =  tf.Summary(value=[
@@ -173,7 +174,7 @@ def train_model_size_fixed(model, ndata = 0):
             if j == 0:
                 np.random.shuffle(x)
             train_loss = model.train_on_batch([x[j*B_size:(j+1)*B_size, :-2,None]], [x[j*B_size:(j+1)*B_size, -2:]])
-            if (i+1)%100 == 0 and j == 0:
+            if (i+1)%1 == 0 and j == 0:
                 print('epoch:{0}'.format(i+1))
                 test_loss = model.test_on_batch([v_x[:, :-2, None]], [v_x[:, -2:]])
                 summary =  tf.Summary(value=[
@@ -189,21 +190,24 @@ def predict_model(loadpath, ndata = 0):
     epoch = 2000
     x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
     x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
-
     with open('{0}/model.json'.format(loadpath),'r') as f:
         model = json.load(f)
     model = model_from_json(model)
-    model.summary()
-    model.load_weights('{0}/ndata{1}/param.hdf5'.format(loadpath, ndata))
+    if ngpus > 1:
+        model = make_parallel(model, ngpus)
+    model.load_weights('{0}/ndata{1}/mixdata/param.hdf5'.format(loadpath, ndata))
     out1_train = model.predict_on_batch([x1[:50, :, None]])
     out2_train = model.predict_on_batch([x2[:50, :, None]])
     out1_test = model.predict_on_batch([x1[50:, :, None]])
     out2_test = model.predict_on_batch([x2[50:, :, None]])
     K.clear_session()
     disc_train = [np.sum(out1_train[:,0]>out1_train[:,1])/x1[:50].shape[0],
-                  np.sum(out2_train[:,0]<out2_train[:,1])/x2[:50].shape[0]]
+                  np.sum(out2_train[:,0]<out2_train[:,1])/x2[:50].shape[0],
+                  (np.sum(out1_train[:,0]>out1_train[:,1]) + np.sum(out2_train[:,0]<out2_train[:,1]))/(x1[:50].shape[0] + x2[:50].shape[0])]
     disc_test = [np.sum(out1_test[:,0]>out1_test[:,1])/x1[50:].shape[0],
-                 np.sum(out2_test[:,0]<out2_test[:,1])/x2[50:].shape[0]]
+                 np.sum(out2_test[:,0]<out2_test[:,1])/x2[50:].shape[0],
+                 (np.sum(out1_test[:,0]>out1_test[:,1]) + np.sum(out2_test[:,0]<out2_test[:,1]))/(x1[50:].shape[0] + x2[50:].shape[0])]
+    
     with open('{0}/ndata{1}/predict_result.csv'.format(loadpath, ndata), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(out1_train)
@@ -220,7 +224,7 @@ def main(flag):
     initpath = '{0}/{1}'.format(filedir, code)
     if os.path.exists(initpath) is False:
         os.makedirs(initpath)
-        
+
     if flag == 'train':
         print('Call train model')
         model = lstm_classifier()
@@ -230,18 +234,28 @@ def main(flag):
 
         if ngpus > 1:
             model = make_parallel(model, ngpus)
-        for ndata in range(0, 10001,100):
+        # for ndata in range(0, 10001,100):
+        for ndata in range(0, 1001,50):
             if ndata == 0:
                 model.save_weights('{0}/param_init.hdf5'.format(initpath))
             else:
                 model.load_weights('{0}/param_init.hdf5'.format(initpath))
+            # train_model_size_fixed(model, ndata)
             train_model(model, ndata)
+
     elif flag == 'predict':
         print('Call predict model')
-        for ndata in range(0, 10001, 100):
-            predict_model(loadpath = initpath, ndata = ndata)
+        dirs = []
+        for x in os.listdir('{0}/'.format(initpath)):
+            if os.path.isdir('{0}/{1}'.format(initpath, x)):
+                dirs.append(x)
+        for ndata in dirs:
+            predict_model(loadpath = initpath, ndata = int(ndata[5:]))
+
     else:
         print('Do not call anyone')
 
+
 if __name__=='__main__':
-    main()
+    main('train')
+    main('predict')
