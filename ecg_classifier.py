@@ -1,9 +1,10 @@
+import numpy as np
+np.random.seed(1337)
 from keras.layers import Input, LSTM, Dense
 from keras.models import Model
 from keras import backend as K
 from keras.models import model_from_json
 import tensorflow as tf
-import numpy as np
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time, argparse, csv
 
@@ -12,11 +13,13 @@ session = tf.Session(config=config)
 K.set_session(session)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--code', type=str, help='code name')
+parser.add_argument('--dir', type=str, help='save dir name')
 parser.add_argument('--gpus', type=int, help='number of GPUs')
+parser.add_argument('--flag', type=str, help='train of predict')
 args = parser.parse_args()
-code = args.code
+dir = args.dir
 ngpus = args.gpus
+FLAG = args.flag
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append('{0}/keras-extras'.format(filedir))
@@ -26,8 +29,8 @@ seq_length = 96
 feature_count = 1
 class_count = 2
 c_num = 20
-epoch = 100
-n_batch = 10
+epoch = 500
+N_batch = 10
 B_size = 50
 
 
@@ -114,26 +117,20 @@ def dataset_load(flag, ndata):
 
 def train_model(model, ndata = 0):
     global filepath
-    filepath = '{0}/{1}/ndata{2}'.format(filedir, code, str(ndata))
+    filepath = '{0}/{1}/ndata{2}'.format(filedir, dir, str(ndata))
     if os.path.exists(filepath) is False:
         os.makedirs(filepath)
     flag = 0
     x, v_x, savepath = dataset_load(flag, ndata)
-    b_size = int(x.shape[0]/n_batch)
-    # model = lstm_classifier()
-    # model.summary()
-    # with open('{0}/model.json'.format(savepath), 'w') as f:
-    #     model_json = model.to_json()
-    #     json.dump(model_json, f)
-
-
-    model.compile(optimizer='adam', loss='binary_crossentropy')
+    b_size = int(x.shape[0]/N_batch)
+    # model.compile(optimizer='adam', loss='binary_crossentropy')
+    model.compile(optimizer='sgd', loss='binary_crossentropy')
 
     with tf.Session() as sess:
         writer = tf.summary.FileWriter('{0}'.format(savepath), sess.graph)
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
-        for i, j in itertools.product(range(epoch), range(n_batch)):
+        for i, j in itertools.product(range(epoch), range(N_batch)):
             if j == 0:
                 np.random.shuffle(x)
             train_loss = model.train_on_batch([x[j*b_size:(j+1)*b_size, :-2,None]], [x[j*b_size:(j+1)*b_size, -2:]])
@@ -151,20 +148,14 @@ def train_model(model, ndata = 0):
 
 def train_model_size_fixed(model, ndata = 0):
     global filepath
-    filepath = '{0}/{1}/ndata{2}'.format(filedir, code, str(ndata))
+    filepath = '{0}/{1}/ndata{2}'.format(filedir, dir, str(ndata))
     if os.path.exists(filepath) is False:
         os.makedirs(filepath)
     flag = 0
     x, v_x, savepath = dataset_load(flag, ndata)
     N_batch = int(x.shape[0]/B_size)
-    # model = lstm_classifier()
-    # model.summary()
-    # with open('{0}/model.json'.format(savepath), 'w') as f:
-    #     model_json = model.to_json()
-    #     json.dump(model_json, f)
-
-
-    model.compile(optimizer='adam', loss='binary_crossentropy')
+    # model.compile(optimizer='adam', loss='binary_crossentropy')
+    model.compile(optimizer='sgd', loss='binary_crossentropy')
 
     with tf.Session() as sess:
         writer = tf.summary.FileWriter('{0}'.format(savepath), sess.graph)
@@ -186,15 +177,10 @@ def train_model_size_fixed(model, ndata = 0):
         model.save_weights('{0}/param.hdf5'.format(savepath))
 
 
-def predict_model(loadpath, ndata = 0):
+def predict_model(loadpath = '', model = None, ndata = 0):
     epoch = 2000
     x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
     x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
-    with open('{0}/model.json'.format(loadpath),'r') as f:
-        model = json.load(f)
-    model = model_from_json(model)
-    if ngpus > 1:
-        model = make_parallel(model, ngpus)
     model.load_weights('{0}/ndata{1}/mixdata/param.hdf5'.format(loadpath, ndata))
     out1_train = model.predict_on_batch([x1[:50, :, None]])
     out2_train = model.predict_on_batch([x2[:50, :, None]])
@@ -221,7 +207,7 @@ def predict_model(loadpath, ndata = 0):
 
 
 def main(flag):
-    initpath = '{0}/{1}'.format(filedir, code)
+    initpath = '{0}/{1}'.format(filedir, dir)
     if os.path.exists(initpath) is False:
         os.makedirs(initpath)
 
@@ -234,28 +220,42 @@ def main(flag):
 
         if ngpus > 1:
             model = make_parallel(model, ngpus)
-        # for ndata in range(0, 10001,100):
         for ndata in range(0, 1001,50):
             if ndata == 0:
                 model.save_weights('{0}/param_init.hdf5'.format(initpath))
             else:
                 model.load_weights('{0}/param_init.hdf5'.format(initpath))
-            # train_model_size_fixed(model, ndata)
-            train_model(model, ndata)
+            train_model_size_fixed(model, ndata)
+            # train_model(model, ndata)
 
     elif flag == 'predict':
         print('Call predict model')
+        with open('{0}/model.json'.format(initpath),'r') as f:
+            model = json.load(f)
+        model = model_from_json(model)
+        if ngpus > 1:
+            model = make_parallel(model, ngpus)
         dirs = []
         for x in os.listdir('{0}/'.format(initpath)):
             if os.path.isdir('{0}/{1}'.format(initpath, x)):
                 dirs.append(x)
         for ndata in dirs:
-            predict_model(loadpath = initpath, ndata = int(ndata[5:]))
+            with open('{0}/model.json'.format(initpath),'r') as f:
+                model = json.load(f)
+            model = model_from_json(model)
+            if ngpus > 1:
+                model = make_parallel(model, ngpus)
+            predict_model(loadpath = initpath, model = model, ndata = int(ndata[5:]))
 
     else:
         print('Do not call anyone')
 
 
 if __name__=='__main__':
-    main('train')
-    main('predict')
+    if FLAG == 'all':
+        main('train')
+        main('predict')
+    elif FLAG == 'train' or FLAG == 'predict':
+        main(FLAG)
+    else:
+        print('selected flag = all or train or predict')
