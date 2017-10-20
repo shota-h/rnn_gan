@@ -73,6 +73,7 @@ class LSTM_classifier():
         except:
             print('not open {0}'.format(filepath))
         else:
+            print(f.name)
             self.model.load_weights(f.name)
             f.close()
         finally:
@@ -82,7 +83,7 @@ class LSTM_classifier():
         self.ndata = ndata
         self.model_init()
         self.model.compile(optimizer=OPT, loss='binary_crossentropy', metrics=['accuracy'])
-        self.filepath = '{0}/{1}/ndata{2}'.format(filedir, dir, str(ndata))
+        self.filepath = '{0}/{1}/ndata{2}/{3}'.format(filedir, dir, str(ndata), aug_flag)
         if os.path.exists(self.filepath) is False:
             os.makedirs(self.filepath)
         x, test_x = self.load_data(flag=aug_flag)
@@ -126,21 +127,20 @@ class LSTM_classifier():
         except:
             print('not open {0}'.format('{0}/param.hdf5'.format(self.filepath)))
         else:
-            model.load_weights(f)
+            self.model.load_weights(f.name)
             out1_train = self.model.predict_on_batch([x1[:self.nTrain, :, None]])
-            out2_train = self.model.predict_on_batch([x2[:nTrain, :, None]])
-            out1_test = self.model.predict_on_batch([x1[nTrain:nTrain+nTest, :, None]])
-            out2_test = self.model.predict_on_batch([x2[nTrain:nTrain+nTest, :, None]])
-            K.clear_session()
-            disc_train = [np.sum(out1_train[:, 0]>out1_train[:, 1])/x1[:nTrain].shape[0],
-                        np.sum(out2_train[:, 0]<out2_train[:, 1])/x2[:nTrain].shape[0],
-                        (np.sum(out1_train[:, 0]>out1_train[:, 1]) + np.sum(out2_train[:, 0]<out2_train[:, 1]))/(nTrain*2)]
-            disc_test = [np.sum(out1_test[:, 0]>out1_test[:, 1])/x1[nTrain:nTrain+nTest].shape[0],
-                        np.sum(out2_test[:, 0]<out2_test[:, 1])/x2[nTrain:nTrain+nTest].shape[0],
-                        (np.sum(out1_test[:, 0]>out1_test[:, 1]) + np.sum(out2_test[:, 0]<out2_test[:, 1]))/(nTest*2)]
+            out2_train = self.model.predict_on_batch([x2[:self.nTrain, :, None]])
+            out1_test = self.model.predict_on_batch([x1[self.nTrain:self.nTrain+self.nTest, :, None]])
+            out2_test = self.model.predict_on_batch([x2[self.nTrain:self.nTrain+self.nTest, :, None]])
+            disc_train = [np.sum(out1_train[:, 0]>out1_train[:, 1])/x1[:self.nTrain].shape[0],
+                        np.sum(out2_train[:, 0]<out2_train[:, 1])/x2[:self.nTrain].shape[0],
+                        (np.sum(out1_train[:, 0]>out1_train[:, 1]) + np.sum(out2_train[:, 0]<out2_train[:, 1]))/(self.nTrain*2)]
+            disc_test = [np.sum(out1_test[:, 0]>out1_test[:, 1])/x1[self.nTrain:self.nTrain+self.nTest].shape[0],
+                        np.sum(out2_test[:, 0]<out2_test[:, 1])/x2[self.nTrain:self.nTrain+self.nTest].shape[0],
+                        (np.sum(out1_test[:, 0]>out1_test[:, 1]) + np.sum(out2_test[:, 0]<out2_test[:, 1]))/(self.nTest*2)]
             
-            with open('{0}/result_ndata{1}.csv'.format(self.filepath, self.ndata), 'w') as f:
-                writer = csv.writer(f, lineterminator='\n')
+            with open('{0}/result_ndata{1}.csv'.format(self.filepath, self.ndata), 'w') as f1:
+                writer = csv.writer(f1, lineterminator='\n')
                 writer.writerow(out1_train)
                 writer.writerow(out2_train)
                 writer.writerow(disc_train)
@@ -182,7 +182,7 @@ class LSTM_classifier():
         print('testdata shape', test_x.shape)
         return x, test_x
 
-        
+
 def lstm_classifier():
   input = Input(shape=(seq_length, feature_count))
   x = LSTM(units=cell_num, return_sequences=True, dropout=0.2, recurrent_dropout=0.2)(input)
@@ -270,9 +270,8 @@ def main():
     delta = 500
     model = LSTM_classifier(nTrain=50, nTest=10)
     for i in range(0, maxdata+1, delta):
-        model.train(epoch=100, ndata=i, aug_flag = 'gan')
+        model.train(epoch=epoch, ndata=i, aug_flag = 'gan')
         model.predict(ndata=i)
-        model.model_init()
 
 
 if __name__=='__main__':
