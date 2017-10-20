@@ -8,13 +8,13 @@ import sys, os
 H = 60.0
 ALPHA = np.sqrt(H/60.0)
 a = np.array([1.2, -5.0, 30.0, -7.5, 0.75])
+# a = np.array([1.2, -5.0, 30.0, -7.5, 2])
 b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
-# theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
-theta = np.array([-np.pi/3*np.sqrt(ALPHA)*0.5, -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
+theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-# length = 10000*4
-length = 1000
+length = 10000*4
+# length = 1000
 # fs = 512
 fs = 96*2
 # fs2 = 256
@@ -118,7 +118,8 @@ def detectpeaks(x, y, z, dtheta, fs_ecg):
 def make_datasets(s, peaks):
     nR = np.where(peaks == 3)
     nR = np.array(nR[0][1:])
-    seg_ecg = np.array([s[i-int(fs2/2):i+int(fs2/2)] for i in nR])
+    rand = np.random.randint(low=-5, high=5, size=(nR.shape[0]))
+    seg_ecg = np.array([s[i+rand[j]-int(fs2/2):i+rand[j]+int(fs2/2)] for j, i in enumerate(nR)])
     if seg_ecg.shape[0] > 200:
         try:
             np.save('{0}/dataset/normal_dynamical_model.npy'.format(filedir), seg_ecg)
@@ -159,15 +160,15 @@ def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     Z = Z[0:-1:2]
     Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
     peaks = detectpeaks(X, Y, Z, theta, fs2)
-    plt.plot(Z)
-    plt.show()
+    # plt.plot(Z)
+    # plt.show()
     # plt.figure()
     # ax = plt.subplot(111, projection='3d')
     # ax.plot(X[:400], Y[:400], Z[:400])
     # plt.savefig('{0}/trajectory.tif'.format(filepath))
     # plt.close()
     # plt.savefig('{0}/output.tif'.format(filepath))
-    # make_datasets(Z, peaks)
+    make_datasets(Z, peaks)
 
 if __name__ == '__main__':
     main(1.0, 0.0, 0.04)

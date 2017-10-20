@@ -19,6 +19,8 @@ parser.add_argument('--dir', type=str, help='save dir name')
 parser.add_argument('--epoch', type=int, default=100, help='number of epoch')
 parser.add_argument('--ncell', type=int, default=100, help='number of epoch')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
+parser.add_argument('--maxdata', type=int, default=10000, help='number of maxdata')
+parser.add_argument('--delta', type=int, default=500, help='data augmentation delta')
 parser.add_argument('--flag', type=str, default='train', help='train of predict')
 parser.add_argument('--opt', type=str, default='sgd', help='select optimizer')
 args = parser.parse_args()
@@ -27,15 +29,17 @@ ngpus = args.gpus
 FLAG = args.flag
 cell_num = args.ncell
 epoch = args.epoch
+maxdata = args.maxdata
+delta = args.delta
 seq_length = 96
 feature_count = 1
 class_count = 2
 sizeBatch = 10
 
 if args.opt == 'sgd':
-    OPT = optimizers.SGD(lr=0.01, momentum=0.9, decay=0.0, nesterov=False)
+    OPT = optimizers.SGD(lr=0.01, momentum=0.5, decay=0.0, nesterov=False)
 elif args.opt == 'adam':
-    OPT = optimizers.Adam(lr=0.001, beta_1=0.9, beta_2=0.999,epsilon=1e-08, decay=0.0)
+    OPT = optimizers.Adam(lr=0.01, beta_1=0.9, beta_2=0.999,epsilon=1e-08, decay=0.0)
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append('{0}/keras-extras'.format(filedir))
@@ -61,7 +65,6 @@ class LSTM_classifier():
     def build(self):
         input = Input(shape=(seq_length, feature_count))
         x = LSTM(units=cell_num, return_sequences=True, dropout=0.2, recurrent_dropout=0.2)(input)
-        x = LSTM(units=cell_num, return_sequences=True, dropout=0.2, recurrent_dropout=0.2)(x)
         x = LSTM(units=class_count)(x)
         x = Activation(activation='softmax')(x)
         return Model(input, x)
@@ -117,9 +120,9 @@ class LSTM_classifier():
             self.model.save_weights('{0}/param.hdf5'.format(self.filepath))
 
     
-    def predict(self, ndata=0):
+    def predict(self, ndata=0, aug_flag='gan'):
         self.ndata = ndata
-        self.filepath = '{0}/{1}/ndata{2}'.format(filedir, dir, str(ndata))
+        self.filepath = '{0}/{1}/ndata{2}/gan'.format(filedir, dir, str(ndata))
         x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
         x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
         try:
@@ -266,12 +269,10 @@ def dataset_load(flag, ndata):
 
 
 def main():
-    maxdata = 1000
-    delta = 500
     model = LSTM_classifier(nTrain=50, nTest=10)
     for i in range(0, maxdata+1, delta):
         model.train(epoch=epoch, ndata=i, aug_flag = 'gan')
-        model.predict(ndata=i)
+        model.predict(ndata=i, aug_flag = 'gan')
 
 
 if __name__=='__main__':
