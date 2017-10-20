@@ -1,17 +1,15 @@
 # rnn GAN
 # signal generate
-
+import numpy as np
+np.random.seed(1337)
 from keras.models import Sequential
 from keras.layers import Dense, Activation,  pooling, Reshape
 from keras.layers.recurrent import LSTM
-# from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l2
-# from keras import initializers
 import keras.optimizers
 import tensorflow as tf
 from keras import backend as K
 from write_slack import write_slack
-import numpy as np
 import matplotlib.pyplot as plt
 import os, sys, json, itertools, time, argparse
 
@@ -25,37 +23,34 @@ adam2 = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,
                               epsilon=1e-08, decay=0.0)
 sgd1 = keras.optimizers.SGD(lr=0.1, momentum=0.9, decay=0.0, nesterov=False)
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--dir', type=str, default='rnn_gan', help='code name')
+parser.add_argument('--layer', type=int, default=2, help='number of layers')
+parser.add_argument('--epoch', type=int, help='number of epoch')
+parser.add_argument('--cell', type=int, default =200, help='number of cell')
+parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
+parser.add_argument('--typeflag', type=str, default='normal', help='normal or abnormal')
+args = parser.parse_args()
+
+dirs = args.dir
+nlayer = args.layer
+epoch = args.epoch
+ngpus = args.gpus
+ncell = args.ncell
+TYPEFLAG = args.typeflag
+i_dim = 1
+seq_length = 96
 filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/{1}/{2}/layer{3}_cell{4}_{5}'\
-.format(filedir, code_name, data_name, l_num, c_num, today)
+filepath = '{0}/{1}/{2}/l{3}_c{4}'.format(filedir, dirs, TYPEFLAG, nlayer, ncell)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
 sys.path.append('{0}/keras-extra'.format(filedir)
 
 from utils.multi_gpu import make_parallel
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--code', type=str, help='code name')
-parser.add_argument('--layer', type=int, help='number of layers')
-parser.add_argument('--epoch', type=int, help='number of epoch')
-parser.add_argument('--data', type=str, help='data name')
-parser.add_argument('--date', type=str, help='date')
-parser.add_argument('--gpus', type=int, help='number of GPUs')
-args = parser.parse_args()
 
-
-code_name = args.code
-l_num = args.layer
-epoch_num = args.epoch
-data_name = args.data
-today = args.date
-ngpus = args.gpus
-i_dim = 1
-c_num = 200
-
-
-def create_random_input(s_num):
-    return np.random.uniform(low=0, high=1, size=[s_num, s_len, i_dim])
+def create_random_input(ndata):
+    return np.random.uniform(low=0, high=1, size=[ndata, seq_length, i_dim])
 
 
 def passage_save(x_imp, x_noise, epoch, G, D, GAN):
@@ -66,51 +61,48 @@ def passage_save(x_imp, x_noise, epoch, G, D, GAN):
         plt.ylim([0, 1])
         plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch, tag[i]))
         plt.clf()
-    G.save_weights('{0}/gen_param_layer{1}_epoch{2}.hdf5'
-                   .format(filepath, l_num, epoch))
-    D.save_weights('{0}/dis_param_layer{1}_epoch{2}.hdf5'
-                   .format(filepath, l_num, epoch))
-    GAN.save_weights('{0}/gan_param_layer{1}_epoch{2}.hdf5'
-                     .format(filepath, l_num, epoch))
+    G.save_weights('{0}/gen_param_epoch{2}.hdf5'
+                   .format(filepath, epoch))
+    D.save_weights('{0}/dis_param_epoch{2}.hdf5'
+                   .format(filepath, epoch))
+    GAN.save_weights('{0}/gan_param_epoch{2}.hdf5'
+                     .format(filepath, epoch))
 
 
 def form_discriminator():
     # ,recurrent_regularizer=l2(0.01)
-    D = Sequential()
-    D.add(LSTM(input_shape=(s_len, 1), units=c_num, unit_forget_bias=True,
+    model = Sequential()
+    model.add(LSTM(input_shape=(seq_length, 1), units=ncell, unit_forget_bias=True,
                return_sequences=True, recurrent_regularizer=l2(0.01)))
-    for i in range(l_num-1):
-        D.add(LSTM(units=c_num, unit_forget_bias=True, return_sequences=True,
+    for i in range(nlayer-1):
+        model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
                    recurrent_regularizer=l2(0.01)))
-    D.add(Dense(units=1, activation='sigmoid'))
-    D.add(Activation('sigmoid'))
-    D.add(pooling.AveragePooling1D(pool_size=s_len, strides=None))
+    model.add(Dense(units=1, activation='sigmoid'))
+    model.add(Activation('sigmoid'))
+    model.add(pooling.AveragePooling1D(pool_size=seq_length, strides=None))
 
-    D.summary()
-    print('form D')
-    model_json = D.to_json()
-    with open('{0}/model_dis_layer{1}.json'.format(filepath, l_num), 'w') as f:
+    model.summary()
+    model_json = model.to_json()
+    with open('{0}/model_dis.json'.format(filepath), 'w') as f:
         f = json.dump(model_json, f)
-
-    return D
+    return model
 
 
 def form_generator():
-    G = Sequential()
-    G.add(LSTM(input_shape=(s_len, i_dim), units=c_num, unit_forget_bias=True,
+    model = Sequential()
+    model.add(LSTM(input_shape=(seq_length, i_dim), units=ncell, unit_forget_bias=True,
                return_sequences=True, recurrent_regularizer=l2(0.01)))
-    for i in range(l_num - 1):
-        G.add(LSTM(units=c_num, unit_forget_bias=True, return_sequences=True,
+    for i in range(nlayer - 1):
+        model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
                    recurrent_regularizer=l2(0.01)))
         # G.add(BatchNormalization(momentum=0.9,beta_initializer=initializers.constant(value=0.5),gamma_initializer=initializers.constant(value=0.1)))
-    G.add(Dense(units=1, activation='sigmoid'))
-    G.add(Reshape((s_len, 1)))
-    G.summary()
-    print('form G')
-    model_json = G.to_json()
-    with open('{0}/model_g_layer{1}.json'.format(filepath, l_num), 'w') as f:
+    model.add(Dense(units=1, activation='sigmoid'))
+    model.add(Reshape((seq_length, 1)))
+    model.summary()
+    model_json = model.to_json()
+    with open('{0}/model_gene.json'.format(filepath), 'w') as f:
         f = json.dump(model_json, f)
-    return G
+    return model
 
 
 def form_gan():
@@ -120,7 +112,7 @@ def form_gan():
     GAN = Sequential([G, D])
     GAN.summary()
     model_json = GAN.to_json()
-    with open('{0}/model_gan_layer{1}.json'.format(filepath, l_num), 'w') as f:
+    with open('{0}/model_gan.json'.format(filepath), 'w') as f:
         f = json.dump(model_json, f)
 
     if ngpus > 1:
@@ -130,69 +122,51 @@ def form_gan():
     D.trainable = True
     D.compile(optimizer=adam1, loss='binary_crossentropy')
     GAN.compile(optimizer=adam1, loss='binary_crossentropy')
-    print('form GAN')
 
     return G, D, GAN
 
 
 def main():
-    global s_len
-    s_len = 96
     start = time.time()
-
-    if os.path.isfile('{0}/dataset/{1}.npy'.format(filedir, data_name)):
-        x = np.load('{0}/dataset/{1}.npy'.format(filedir, data_name))
-        x = x[:50]
-    else:
+    print('\n----setup----\n')
+    try:
+        f = open('{0}/dataset/{1}_raw.npy'.format(filedir, TYPEFLAG))
+    except:
         print('not open dataset')
-        sys.exit()
+    else:
+        x = np.load(f.name)
+        x = x[:50]
+        f.close()
+    finally:
+        pass
     x = x[:, :, None]
     np.save('{0}/dataset.npy'.format(filepath), x)
-    plt.plot(x[:, :, 0].T)
-    plt.ylim([0, 1])
-    plt.savefig('{0}/dataset.png'.format(filepath))
-    plt.clf()
-    plt.plot(x[0, :, 0].T)
-    plt.ylim([0, 1])
-    plt.savefig('{0}/dataset_one.png'.format(filepath))
-    plt.clf()
-    print('signal_length', s_len)
-    print('\n----setup----\n')
-
     with tf.Session() as sess:
         writer = tf.summary.FileWriter('{0}'.format(filepath), sess.graph)
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
         G, D, GAN = form_gan()
 
-        loss_d_mat = loss_g_mat = []
-        pre_d_mat = pre_g_mat = []
         v_z_n = create_random_input(1)
-        v_z = np.append(np.ones([1, 1, i_dim]), np.zeros([1, s_len-1, i_dim]),
-                        axis=1)
-        batch_size = 10
-        s_num = int(x.shape[0])
-        batch_num = int(s_num / batch_size)
+        v_z = np.append(np.ones([1, 1, i_dim]), np.zeros([1, seq_length-1, i_dim]),axis=1)
+        sizeBatch = 10
+        ndata = int(x.shape[0])
+        nbatch = int(ndata / sizeBatch)
         loss_ratio = 1.0
         d_num = 0
-        d_real = np.zeros([batch_size, 1, 1])
-        d_fake = np.ones([batch_size, 1, 1])
-        y_ = np.zeros([batch_size, 1, 1])
+        d_real = np.zeros([sizeBatch, 1, 1])
+        d_fake = np.ones([sizeBatch, 1, 1])
+        y_ = np.zeros([sizeBatch, 1, 1])
         iters = 1
         print('\n----train step----\n')
-        for epoch in range(epoch_num):
-            # if ((epoch+1) % 2000 == 0) and n <= (n_p-1):
-            #     n += 1
-            #     x = np.append(x,d_x[n::n_p],axis=0)
-            #     s_num = int(x.shape[0])
-            #     batch_num = int(s_num/batch_size)
+        for i in range(epoch):
             if loss_ratio >= 0.7:
                 d_num += 1
-                for k, bn in itertools.product(range(iters), range(batch_num)):
+                for k, nb in itertools.product(range(iters), range(nbatch)):
                     if bn == 0:
                         np.random.shuffle(x)
-                    b_x = x[bn * batch_size:(bn + 1) * batch_size, :, :]
-                    z = create_random_input(batch_size)
+                    b_x = x[nb * sizeBatch:(nb + 1) * sizeBatch, :, :]
+                    z = create_random_input(sizeBatch)
                     x_ = G.predict([z])
                     # train discriminator
                     loss_d_real = D.train_on_batch([b_x], [d_real],
@@ -201,14 +175,13 @@ def main():
                                                    sample_weight=None)
                 loss_d = [loss_d_real, loss_d_fake]
 
-            for b_num in range(batch_num):
+            for b_num in range(nbatch):
                 # train generator and GAN
-                z = create_random_input(batch_size)
+                z = create_random_input(sBatch)
                 loss_gan = GAN.train_on_batch([z], [y_], sample_weight=None)
 
-            if (epoch + 1) % 10 == 0 and (b_num + 1) == batch_num:
-                print('epoch:{0}'.format(epoch+1))
-                print('calculate loss d N --{0}'.format(d_num))
+            if (epoch + 1) % 1 == 0 and (nb + 1) == nbatch:
+                print('epoch:{0}'.format(i+1))
                 d_num = 0
                 pre_d = D.predict([x[:1, :, :]])
                 x_ = G.predict([create_random_input(1)])
@@ -225,27 +198,15 @@ def main():
                                                       simple_value=pre_d),
                                      tf.Summary.Value(tag='predict_z',
                                                       simple_value=pre_g), ])
-                writer.add_summary(summary, epoch+1)
+                writer.add_summary(summary, i+1)
 
                 passage_save(G.predict([v_z]), G.predict([v_z_n]),
                              epoch+1, G, D, GAN)
-                loss_d_mat.append(loss_d)
-                loss_g_mat.append(loss_gan)
-                pre_d_mat.append(pre_d)
-                pre_g_mat.append(pre_g)
-
             loss_ratio = 1.0
             # loss_ratio = ((loss_d[0]+loss_d[1])/2)/loss_gan
-
-    np.save('{0}/loss_d_mat.npy'.format(filepath), np.array(loss_d_mat))
-    np.save('{0}/loss_g_mat.npy'.format(filepath), np.array(loss_g_mat))
-    np.save('{0}/pre_d.npy'.format(filepath), np.array(pre_d_mat))
-    np.save('{0}/pre_g.npy'.format(filepath), np.array(pre_g_mat))
-
     K.clear_session()
     dt = time.time() - start
     print('finished time : {0}[sec]'.format(dt))
-    print('program finish')
     write_slack(code_name, 'program finish')
 
 

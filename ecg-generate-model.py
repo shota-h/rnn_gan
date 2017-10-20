@@ -9,10 +9,12 @@ H = 60.0
 ALPHA = np.sqrt(H/60.0)
 a = np.array([1.2, -5.0, 30.0, -7.5, 0.75])
 b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
-theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
+# theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
+theta = np.array([-np.pi/3*np.sqrt(ALPHA)*0.5, -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-length = 10000*4
+# length = 10000*4
+length = 1000
 # fs = 512
 fs = 96*2
 # fs2 = 256
@@ -118,8 +120,15 @@ def make_datasets(s, peaks):
     nR = np.array(nR[0][1:])
     seg_ecg = np.array([s[i-int(fs2/2):i+int(fs2/2)] for i in nR])
     if seg_ecg.shape[0] > 200:
-        np.save('{0}/dataset/normal_dynamical_model.npy'.format(filedir), seg_ecg)
-        print('save it')
+        try:
+            np.save('{0}/dataset/normal_dynamical_model.npy'.format(filedir), seg_ecg)
+        except:
+            print('not save it')
+        else:
+           print('save it')
+        finally:
+            pass
+
 
 def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     N = 256
@@ -158,8 +167,6 @@ def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     # plt.savefig('{0}/trajectory.tif'.format(filepath))
     # plt.close()
     # plt.savefig('{0}/output.tif'.format(filepath))
-    # np.save('{0}/generate-ecg.npy'.format(filepath), Z)
-    # np.save('{0}/ecg-peak.npy'.format(filepath), peaks)
     # make_datasets(Z, peaks)
 
 if __name__ == '__main__':
