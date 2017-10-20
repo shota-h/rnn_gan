@@ -12,9 +12,11 @@ b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
 theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-length = 10000
-fs = 512
-fs2 = 256
+length = 10000*4
+# fs = 512
+fs = 96*2
+# fs2 = 256
+fs2 = 96
 dt = 1.0/fs
 
 filedir = os.path.abspath(os.path.dirname(__file__))
@@ -111,6 +113,14 @@ def detectpeaks(x, y, z, dtheta, fs_ecg):
     return ind
 
 
+def make_datasets(s, peaks):
+    nR = np.where(peaks == 3)
+    nR = np.array(nR[0][1:])
+    seg_ecg = np.array([s[i-int(fs2/2):i+int(fs2/2)] for i in nR])
+    if seg_ecg.shape[0] > 200:
+        np.save('{0}/dataset/normal_dynamical_model.npy'.format(filedir), seg_ecg)
+        print('save it')
+
 def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     N = 256
     rr = rrprocess(0.1,0.25,0.01,0.01,1,60,1,1,N)
@@ -140,21 +150,17 @@ def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     Z = Z[0:-1:2]
     Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
     peaks = detectpeaks(X, Y, Z, theta, fs2)
-    # plt.plot(peaks)
-    plt.figure()
-    ax = plt.subplot(111, projection='3d')
-    ax.plot(X[:400], Y[:400], Z[:400])
-    plt.savefig('{0}/trajectory.tif'.format(filepath))
-    plt.close()
-    plt.plot(Z,'-')
-    plt.savefig('{0}/output.tif'.format(filepath))
-    plt.close()
-    plt.plot(Z[100:500],'-')
-    plt.savefig('{0}/output_zoom.tif'.format(filepath))
-    # plt.show()
-    np.save('{0}/generate-ecg.npy'.format(filepath), Z)
-    np.save('{0}/ecg-peak.npy'.format(filepath), peaks)
-
+    plt.plot(Z)
+    plt.show()
+    # plt.figure()
+    # ax = plt.subplot(111, projection='3d')
+    # ax.plot(X[:400], Y[:400], Z[:400])
+    # plt.savefig('{0}/trajectory.tif'.format(filepath))
+    # plt.close()
+    # plt.savefig('{0}/output.tif'.format(filepath))
+    # np.save('{0}/generate-ecg.npy'.format(filepath), Z)
+    # np.save('{0}/ecg-peak.npy'.format(filepath), peaks)
+    # make_datasets(Z, peaks)
 
 if __name__ == '__main__':
     main(1.0, 0.0, 0.04)
