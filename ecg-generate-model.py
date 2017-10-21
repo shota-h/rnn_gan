@@ -4,11 +4,19 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.integrate import odeint
 from scipy import signal, interpolate
 import sys, os
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--typeflag', type=str, default='normal', help='normal or abnormal')
+args = parser.parse_args()
+TYPEFLAG = args.typeflag
 
 H = 60.0
 ALPHA = np.sqrt(H/60.0)
-a = np.array([1.2, -5.0, 30.0, -7.5, 0.75])
-# a = np.array([1.2, -5.0, 30.0, -7.5, 2])
+if TYPEFLAG == 'abnormal':
+    a = np.array([1.2, -5.0, 30.0, -7.5, 2])
+else:
+    a = np.array([1.2, -5.0, 30.0, -7.5, 0.75])
 b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
 theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
@@ -120,9 +128,11 @@ def make_datasets(s, peaks):
     nR = np.array(nR[0][1:])
     rand = np.random.randint(low=-5, high=5, size=(nR.shape[0]))
     seg_ecg = np.array([s[i+rand[j]-int(fs2/2):i+rand[j]+int(fs2/2)] for j, i in enumerate(nR)])
+    seg_ecg = np.array([i for i in seg_ecg])
     if seg_ecg.shape[0] > 200:
         try:
-            np.save('{0}/dataset/normal_dynamical_model.npy'.format(filedir), seg_ecg)
+            print(TYPEFLAG)
+            np.save('{0}/dataset/{1}_model.npy'.format(filedir, TYPEFLAG), seg_ecg)
         except:
             print('not save it')
         else:
@@ -158,7 +168,8 @@ def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     X = X[0:-1:2]
     Y = Y[0:-1:2]
     Z = Z[0:-1:2]
-    Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
+    # Z = 1.6*(Z - min(Z))/(max(Z) - min(Z))-0.4
+    Z = 1.0*(Z - min(Z))/(max(Z) - min(Z))
     peaks = detectpeaks(X, Y, Z, theta, fs2)
     # plt.plot(Z)
     # plt.show()
