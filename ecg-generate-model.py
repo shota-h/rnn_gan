@@ -125,18 +125,22 @@ def detectpeaks(x, y, z, dtheta, fs_ecg):
 
 def make_datasets(s, peaks):
     nR = np.where(peaks == 3)
-    nR = np.array(nR[0][1:])
+    nR = np.array(nR[0][1:-1])
     rand = np.random.randint(low=-5, high=5, size=(nR.shape[0]))
-    seg_ecg = np.array([s[i+rand[j]-int(fs2/2):i+rand[j]+int(fs2/2)] for j, i in enumerate(nR)])
+    seg_ecg = [s[i+rand[j]-int(fs2/2):i+rand[j]+int(fs2/2)] for j, i in enumerate(nR)]
     seg_ecg = np.array([i for i in seg_ecg])
     if seg_ecg.shape[0] > 200:
         try:
             print(TYPEFLAG)
-            np.save('{0}/dataset/{1}_model.npy'.format(filedir, TYPEFLAG), seg_ecg)
+            f = open('{0}/dataset/{1}_model.npy'.format(filedir, TYPEFLAG), 'w')
         except:
             print('not save it')
+            import traceback
+            traceback.print_exc()
         else:
-           print('save it')
+            np.save(f.name, seg_ecg)
+            f.close()
+            print('save it')
         finally:
             pass
 
