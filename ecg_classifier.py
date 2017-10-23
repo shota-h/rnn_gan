@@ -9,7 +9,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time, argparse, csv
 
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0')
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
 session = tf.Session(config=config)
 K.set_session(session)
 

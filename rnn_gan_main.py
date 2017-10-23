@@ -13,7 +13,7 @@ from write_slack import write_slack
 import matplotlib.pyplot as plt
 import os, sys, json, itertools, time, argparse
 
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='1'))
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='1'), device_count={'GPU':1})
 session = tf.Session(config=config)
 K.set_session(session)
 
