@@ -64,11 +64,11 @@ def passage_save(x_imp, x_noise, epoch, G, D, GAN):
             plt.ylim([0, 1])
             plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch+1, tag[i]))
             plt.close()
-    G.save_weights('{0}/gen_param_epoch{2}.hdf5'
+    G.save_weights('{0}/gen_param_epoch{1}.hdf5'
                    .format(filepath, epoch))
-    D.save_weights('{0}/dis_param_epoch{2}.hdf5'
+    D.save_weights('{0}/dis_param_epoch{1}.hdf5'
                    .format(filepath, epoch))
-    GAN.save_weights('{0}/gan_param_epoch{2}.hdf5'
+    GAN.save_weights('{0}/gan_param_epoch{1}.hdf5'
                      .format(filepath, epoch))
 
 
@@ -180,7 +180,7 @@ def main():
 
             for b_num in range(nbatch):
                 # train generator and GAN
-                z = create_random_input(sBatch)
+                z = create_random_input(sizeBatch)
                 loss_gan = GAN.train_on_batch([z], [y_], sample_weight=None)
 
             if (epoch + 1) % 1 == 0 and (nb + 1) == nbatch:
