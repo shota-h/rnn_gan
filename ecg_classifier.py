@@ -9,7 +9,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time, argparse, csv
 
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0')
 session = tf.Session(config=config)
 K.set_session(session)
 
@@ -91,7 +91,7 @@ class LSTM_classifier():
             os.makedirs(self.filepath)
         x, test_x = self.load_data(flag=aug_flag)
         numBatch = int(x.shape[0]/sizeBatch)
-        with tf.Session() as sess:
+        with tf.Session(config=config) as sess:
             writer = tf.summary.FileWriter('{0}'.format(self.filepath), sess.graph)
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())

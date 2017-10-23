@@ -13,7 +13,7 @@ from write_slack import write_slack
 import matplotlib.pyplot as plt
 import os, sys, json, itertools, time, argparse
 
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='1'))
 session = tf.Session(config=config)
 K.set_session(session)
 
@@ -26,10 +26,11 @@ sgd1 = keras.optimizers.SGD(lr=0.1, momentum=0.9, decay=0.0, nesterov=False)
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='rnn_gan', help='code name')
 parser.add_argument('--layer', type=int, default=2, help='number of layers')
-parser.add_argument('--epoch', type=int, help='number of epoch')
+parser.add_argument('--epoch', type=int, default=2000,help='number of epoch')
 parser.add_argument('--cell', type=int, default =200, help='number of cell')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
 parser.add_argument('--typeflag', type=str, default='normal', help='normal or abnormal')
+parser.add_argument('--datatype', type=str, default='raw', help='raw or model')
 args = parser.parse_args()
 
 dirs = args.dir
@@ -38,13 +39,14 @@ epoch = args.epoch
 ngpus = args.gpus
 ncell = args.ncell
 TYPEFLAG = args.typeflag
+DATATYPE = args.datatype
 i_dim = 1
 seq_length = 96
 filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/{1}/{2}/l{3}_c{4}'.format(filedir, dirs, TYPEFLAG, nlayer, ncell)
+filepath = '{0}/{1}/{2}-{3}/l{4}_c{5}'.format(filedir, dirs, TYPEFLAG, DATATYPE, nlayer, ncell)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
-sys.path.append('{0}/keras-extra'.format(filedir)
+sys.path.append('{0}/keras-extras'.format(filedir))
 
 from utils.multi_gpu import make_parallel
 
@@ -56,11 +58,12 @@ def create_random_input(ndata):
 def passage_save(x_imp, x_noise, epoch, G, D, GAN):
     tag = ['gene_imp', 'gene_noise']
     x_ = [x_imp[0, :, 0], x_noise[0, :, 0]]
-    for i in range(2):
-        plt.plot(x_[i], '.-')
-        plt.ylim([0, 1])
-        plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch, tag[i]))
-        plt.clf()
+    if (epoch+1) % 100 == 0:
+        for i in range(2):
+            plt.plot(x_[i], '.-')
+            plt.ylim([0, 1])
+            plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch+1, tag[i]))
+            plt.close()
     G.save_weights('{0}/gen_param_epoch{2}.hdf5'
                    .format(filepath, epoch))
     D.save_weights('{0}/dis_param_epoch{2}.hdf5'
@@ -130,7 +133,7 @@ def main():
     start = time.time()
     print('\n----setup----\n')
     try:
-        f = open('{0}/dataset/{1}_raw.npy'.format(filedir, TYPEFLAG))
+        f = open('{0}/dataset/{1}_{2}.npy'.format(filedir, TYPEFLAG, DATATYPE))
     except:
         print('not open dataset')
     else:
@@ -141,7 +144,7 @@ def main():
         pass
     x = x[:, :, None]
     np.save('{0}/dataset.npy'.format(filepath), x)
-    with tf.Session() as sess:
+    with tf.Session(config=config) as sess:
         writer = tf.summary.FileWriter('{0}'.format(filepath), sess.graph)
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
