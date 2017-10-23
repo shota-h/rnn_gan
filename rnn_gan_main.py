@@ -25,7 +25,7 @@ sgd1 = keras.optimizers.SGD(lr=0.1, momentum=0.9, decay=0.0, nesterov=False)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='rnn_gan', help='code name')
-parser.add_argument('--layer', type=int, default=2, help='number of layers')
+parser.add_argument('--layer', type=int, default=3, help='number of layers')
 parser.add_argument('--epoch', type=int, default=2000,help='number of epoch')
 parser.add_argument('--cell', type=int, default =200, help='number of cell')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
@@ -58,12 +58,12 @@ def create_random_input(ndata):
 def passage_save(x_imp, x_noise, epoch, G, D, GAN):
     tag = ['gene_imp', 'gene_noise']
     x_ = [x_imp[0, :, 0], x_noise[0, :, 0]]
-    if (epoch+1) % 100 == 0:
-        for i in range(2):
-            plt.plot(x_[i], '.-')
-            plt.ylim([0, 1])
-            plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch+1, tag[i]))
-            plt.close()
+    
+    for i in range(2):
+        plt.plot(x_[i], '.-')
+        plt.ylim([0, 1])
+        plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch+1, tag[i]))
+        plt.close()
     G.save_weights('{0}/gen_param_epoch{1}.hdf5'
                    .format(filepath, epoch))
     D.save_weights('{0}/dis_param_epoch{1}.hdf5'
@@ -139,6 +139,8 @@ def main():
     else:
         x = np.load(f.name)
         x = x[:50]
+        plt.plot(x[0])
+        plt.show()
         f.close()
     finally:
         pass
@@ -183,7 +185,7 @@ def main():
                 z = create_random_input(sizeBatch)
                 loss_gan = GAN.train_on_batch([z], [y_], sample_weight=None)
 
-            if (epoch + 1) % 1 == 0 and (nb + 1) == nbatch:
+            if (i + 1) % 1 == 0 and (nb + 1) == nbatch:
                 print('epoch:{0}'.format(i+1))
                 d_num = 0
                 pre_d = D.predict([x[:1, :, :]])
@@ -202,9 +204,8 @@ def main():
                                      tf.Summary.Value(tag='predict_z',
                                                       simple_value=pre_g), ])
                 writer.add_summary(summary, i+1)
-
-                passage_save(G.predict([v_z]), G.predict([v_z_n]),
-                             epoch+1, G, D, GAN)
+            if (epoch+1) % 100 == 0:
+                passage_save(G.predict([v_z]), G.predict([v_z_n]), i+1, G, D, GAN)
             loss_ratio = 1.0
             # loss_ratio = ((loss_d[0]+loss_d[1])/2)/loss_gan
     K.clear_session()
