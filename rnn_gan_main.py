@@ -37,7 +37,7 @@ dirs = args.dir
 nlayer = args.layer
 epoch = args.epoch
 ngpus = args.gpus
-ncell = args.ncell
+ncell = args.cell
 TYPEFLAG = args.typeflag
 DATATYPE = args.datatype
 i_dim = 1
@@ -166,7 +166,7 @@ def main():
             if loss_ratio >= 0.7:
                 d_num += 1
                 for k, nb in itertools.product(range(iters), range(nbatch)):
-                    if bn == 0:
+                    if nb == 0:
                         np.random.shuffle(x)
                     b_x = x[nb * sizeBatch:(nb + 1) * sizeBatch, :, :]
                     z = create_random_input(sizeBatch)
