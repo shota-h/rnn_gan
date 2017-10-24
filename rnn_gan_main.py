@@ -99,7 +99,8 @@ def form_generator():
         model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
                    recurrent_regularizer=l2(0.01)))
         # G.add(BatchNormalization(momentum=0.9,beta_initializer=initializers.constant(value=0.5),gamma_initializer=initializers.constant(value=0.1)))
-    model.add(Dense(units=1, activation='sigmoid'))
+    model.add(Dense(units=1))
+    model.add(Activation('sigmoid'))
     model.add(Reshape((seq_length, 1)))
     model.summary()
     model_json = model.to_json()
@@ -111,7 +112,6 @@ def form_generator():
 def form_gan():
     G = form_generator()
     D = form_discriminator()
-    D.trainable = False
     GAN = Sequential([G, D])
     GAN.summary()
     model_json = GAN.to_json()
@@ -122,8 +122,8 @@ def form_gan():
         G = make_parallel(G, ngpus)
         D = make_parallel(D, ngpus)
         GAN = make_parallel(GAN, ngpus)
-    D.trainable = True
     D.compile(optimizer=adam1, loss='binary_crossentropy')
+    D.trainable = False
     GAN.compile(optimizer=adam1, loss='binary_crossentropy')
 
     return G, D, GAN
@@ -204,14 +204,14 @@ def main():
                                      tf.Summary.Value(tag='predict_z',
                                                       simple_value=pre_g), ])
                 writer.add_summary(summary, i+1)
-            if (epoch+1) % 100 == 0:
-                passage_save(G.predict([v_z]), G.predict([v_z_n]), i+1, G, D, GAN)
+            if (i+1) % 100 == 0:
+                passage_save(G.predict([v_z]), G.predict([v_z_n]), i, G, D, GAN)
             loss_ratio = 1.0
             # loss_ratio = ((loss_d[0]+loss_d[1])/2)/loss_gan
     K.clear_session()
     dt = time.time() - start
     print('finished time : {0}[sec]'.format(dt))
-    write_slack(code_name, 'program finish')
+    write_slack('research', 'program finish')
 
 
 if __name__ == '__main__':
