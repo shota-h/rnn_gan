@@ -80,7 +80,7 @@ def form_discriminator():
     for i in range(nlayer-1):
         model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
                    recurrent_regularizer=l2(0.01)))
-    model.add(Dense(units=1, activation='sigmoid'))
+    model.add(Dense(units=1))
     model.add(Activation('sigmoid'))
     model.add(pooling.AveragePooling1D(pool_size=seq_length, strides=None))
 
@@ -112,19 +112,20 @@ def form_generator():
 def form_gan():
     G = form_generator()
     D = form_discriminator()
+    D.compile(optimizer=adam1, loss='binary_crossentropy')
+    D.trainable = False
     GAN = Sequential([G, D])
+    GAN.compile(optimizer=adam1, loss='binary_crossentropy')
     GAN.summary()
     model_json = GAN.to_json()
     with open('{0}/model_gan.json'.format(filepath), 'w') as f:
         f = json.dump(model_json, f)
 
     if ngpus > 1:
-        G = make_parallel(G, ngpus)
-        D = make_parallel(D, ngpus)
-        GAN = make_parallel(GAN, ngpus)
-    D.compile(optimizer=adam1, loss='binary_crossentropy')
-    D.trainable = False
-    GAN.compile(optimizer=adam1, loss='binary_crossentropy')
+        print("call parallel")
+        G_para = make_parallel(G, ngpus)
+        D_para = make_parallel(D, ngpus)
+        GAN_para = make_parallel(GAN, ngpus)
 
     return G, D, GAN
 
@@ -140,7 +141,8 @@ def main():
         x = np.load(f.name)
         x = x[:50]
         plt.plot(x[0])
-        plt.show()
+        plt.savefig('{0}/dataset.tif'.format(filepath))
+        plt.close()
         f.close()
     finally:
         pass
