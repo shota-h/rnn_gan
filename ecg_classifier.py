@@ -17,12 +17,13 @@ K.set_session(session)
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, help='save dir name')
 parser.add_argument('--epoch', type=int, default=100, help='number of epoch')
-parser.add_argument('--ncell', type=int, default=100, help='number of epoch')
+parser.add_argument('--ncell', type=int, default=100, help='number of cell')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
 parser.add_argument('--maxdata', type=int, default=10000, help='number of maxdata')
 parser.add_argument('--delta', type=int, default=500, help='data augmentation delta')
 parser.add_argument('--flag', type=str, default='train', help='train of predict')
 parser.add_argument('--opt', type=str, default='sgd', help='select optimizer')
+parser.add_argument('--datatype', type=str, default='raw', help='raw or model')
 args = parser.parse_args()
 dir = args.dir
 ngpus = args.gpus
@@ -30,6 +31,7 @@ FLAG = args.flag
 cell_num = args.ncell
 epoch = args.epoch
 maxdata = args.maxdata
+DATATYPE = args.datatype
 delta = args.delta
 seq_length = 96
 feature_count = 1
@@ -44,8 +46,6 @@ elif args.opt == 'adam':
 filedir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append('{0}/keras-extras'.format(filedir))
 from utils.multi_gpu import make_parallel
-
-
 
 
 class LSTM_classifier():
@@ -123,8 +123,8 @@ class LSTM_classifier():
     def predict(self, ndata=0, aug_flag='gan'):
         self.ndata = ndata
         self.filepath = '{0}/{1}/ndata{2}/gan'.format(filedir, dir, str(ndata))
-        x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
-        x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
+        x1 = np.load('{0}/dataset/normal_{1}.npy'.format(filedir, DATATYPE))
+        x2 = np.load('{0}/dataset/abnormal_{1}.npy'.format(filedir, DATATYPE))
         try:
             f = open('{0}/param.hdf5'.format(self.filepath))
         except:
@@ -156,11 +156,11 @@ class LSTM_classifier():
 
 
     def load_data(self, flag):
-        filename1 = '{0}/dataset/normal_normalized.npy'.format(filedir)
-        filename2 = '{0}/dataset/abnormal_normalized.npy'.format(filedir)
+        filename1 = '{0}/dataset/normal_{1}.npy'.format(filedir, DATATYPE)
+        filename2 = '{0}/dataset/abnormal_{1}.npy'.format(filedir, DATATYPE)
         if flag == 'gan':
-            aug_filename1 = '{0}/dataset/ecg_normal_aug.npy'.format(filedir)
-            aug_filename2 =  '{0}/dataset/ecg_abnormal_aug.npy'.format(filedir)
+            aug_filename1 = '{0}/dataset/ecg_normal_based_{1}.npy'.format(filedir, DATATYPE)
+            aug_filename2 =  '{0}/dataset/ecg_abnormal_based_{1}.npy'.format(filedir, DATATYPE)
         elif flag == 'hmm':
             aug_filename1 = '{0}/dataset/normal_hmm_ecg_0830.npy'.format(filedir)
             aug_filename2 = '{0}/dataset/abnormal_hmm_ecg_0830.npy'.format(filedir)
@@ -230,8 +230,8 @@ def load_data_aug(ndata = 0):
 
 
 def load_data_hmm():
-    x1 = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
-    x2 = np.load('{0}/dataset/abnormal_normalized.npy'.format(filedir))
+    x1 = np.load('{0}/dataset/normal_{1}.npy'.format(filedir, DATATYPE))
+    x2 = np.load('{0}/dataset/abnormal_{1}.npy'.format(filedir, DATATYPE))
     x1 = np.append(x1, np.ones([x1.shape[0],1]), axis=1)
     x1 = np.append(x1, np.zeros([x1.shape[0],1]), axis=1)
     x2 = np.append(x2, np.zeros([x2.shape[0],1]), axis=1)
@@ -269,7 +269,7 @@ def dataset_load(flag, ndata):
 
 
 def main():
-    model = LSTM_classifier(nTrain=50, nTest=10)
+    model = LSTM_classifier(nTrain=50, nTest=100)
     for i in range(0, maxdata+1, delta):
         model.train(epoch=epoch, ndata=i, aug_flag = 'gan')
         model.predict(ndata=i, aug_flag = 'gan')
