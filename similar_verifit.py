@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--classflag', type=str, default='normal', help='normal or abnormal')
 parser.add_argument('--dataflag', type=str, default='normal', help='model or raw or gan')
 args = parser.parse_args()
-CLASSFLAG = args.typeflag
+CLASSFLAG = args.classflag
 DATAFLAG = args.dataflag
 
 
@@ -31,11 +31,8 @@ def dtw(x1, x2):
 def mse(x1, x2):
     return np.sum(np.abs(x1 - x2))
 
-
-def main():
-    # ecg = np.load('{0}/dataset/ecg_abnormal_aug.npy'.format(filedir))
-    # ecg = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
-    ecg = np.load('{0}/dataset/{1}_dynamical_model.npy'.format(filedir, CLASSFLAG, DATAFLAG))
+def similar_verifit(loadpath):
+    ecg = np.load(loadpath)
     ecg = ecg[:50]
     Error = np.zeros([ecg.shape[0], ecg.shape[0]])
     for i, j in itertools.product(range(ecg.shape[0]), range(ecg.shape[0])):
@@ -64,14 +61,19 @@ def main():
     with open('{0}/mean-std.csv'.format(filepath), 'a') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(E)
-    np.save('{0}/dtw_mean.npy'.format(filepath), error_mean)
-    np.save('{0}/dtw_std.npy'.format(filepath), error_std)
     plt.figure(figsize = (16, 9))
     plt.bar(range(len(error_mean)), error_mean, yerr = error_std)
     plt.title('dtw')
     plt.savefig('{0}/dtw.png'.format(filepath))
     plt.close()
 
+
+def main():
+    # ecg = np.load('{0}/dataset/normal_normalized.npy'.format(filedir))
+    # loadpath = '{0}/dataset/ecg_abnormal_aug.npy'.format(filedir)
+    # loadpath = '{0}/dataset/{1}_dynamical_model.npy'.format(filedir, CLASSFLAG, DATAFLAG)
+    loadpath = '{0}/dataset/ecg_{1}_based_model.npy'.format(filedir, CLASSFLAG)
+    similar_verifit(loadpath)
 
 if __name__ == '__main__':
     main()
