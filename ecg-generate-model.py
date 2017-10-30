@@ -8,9 +8,10 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--typeflag', type=str, default='normal', help='normal or abnormal')
+parser.add_argument('--numdataset', type=int, default=200, help='number of dataset')
 args = parser.parse_args()
 TYPEFLAG = args.typeflag
-
+num_dataset = args.numdataset
 H = 60.0
 ALPHA = np.sqrt(H/60.0)
 if TYPEFLAG == 'abnormal':
@@ -21,13 +22,13 @@ b = np.array([0.25, 0.1, 0.1, 0.1, 0.4])*ALPHA
 theta = np.array([-np.pi/3*np.sqrt(ALPHA), -np.pi/12.0*ALPHA, 0.0, np.pi/12.0*ALPHA, np.pi/2*np.sqrt(ALPHA)])
 A = 0.005
 f2 = 0.25
-length = 10000*4
-# length = 1000
 # fs = 512
 fs = 96*2
 # fs2 = 256
 fs2 = 96
 dt = 1.0/fs
+# length = 10000*4
+length = num_dataset * (fs+1)
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 filepath = '{0}/ecg-generate-model'.format(filedir)
@@ -129,7 +130,7 @@ def make_datasets(s, peaks):
     rand = np.random.randint(low=-5, high=5, size=(nR.shape[0]))
     seg_ecg = [s[i+rand[j]-int(fs2/2):i+rand[j]+int(fs2/2)] for j, i in enumerate(nR)]
     seg_ecg = np.array([i for i in seg_ecg])
-    if seg_ecg.shape[0] > 200:
+    if seg_ecg.shape[0] > num_dataset:
         try:
             print(TYPEFLAG)
             f = open('{0}/dataset/{1}_model.npy'.format(filedir, TYPEFLAG), 'w')
@@ -138,18 +139,18 @@ def make_datasets(s, peaks):
             import traceback
             traceback.print_exc()
         else:
-            np.save(f.name, seg_ecg)
+            np.save(f.name, seg_ecg[:num_dataset])
             f.close()
             print('save it')
         finally:
-            pass
+            print('finish make dataset')
 
 
 def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     N = 256
     rr = rrprocess(0.1,0.25,0.01,0.01,1,60,1,1,N)
     ff = interpolate.interp1d(np.arange(N)/(N-1), rr)
-    rr = ff(np.arange(N*fs)/(N*fs-1))
+    rr = ff(np.arange(length)/(length-1))
     w = 2*np.pi/(rr)
     x = x0
     y = y0
@@ -183,6 +184,7 @@ def main(x0 = 1.0, y0 = 0.0, z0 = 0.04):
     # plt.savefig('{0}/trajectory.tif'.format(filepath))
     # plt.close()
     # plt.savefig('{0}/output.tif'.format(filepath))
+    print('make_datasets')
     make_datasets(Z, peaks)
 
 if __name__ == '__main__':

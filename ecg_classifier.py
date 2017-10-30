@@ -1,11 +1,12 @@
 import numpy as np
+import tensorflow as tf
 np.random.seed(1337)
+tf.set_random_seed(1337)
 from keras.layers import Input, LSTM, Dense, Activation, pooling, Reshape
 from keras.models import Model
 from keras import backend as K
 from keras.models import model_from_json
 from keras import optimizers
-import tensorflow as tf
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time, argparse, csv
 
@@ -25,7 +26,7 @@ parser.add_argument('--flag', type=str, default='train', help='train of predict'
 parser.add_argument('--opt', type=str, default='sgd', help='select optimizer')
 parser.add_argument('--datatype', type=str, default='raw', help='raw or model')
 parser.add_argument('--nTrain', type=int, default=50, help='number of Train data')
-parser.add_argument('--nTest', type=int, default=50, help='number of Test data')
+parser.add_argument('--nTest', type=int, default=20, help='number of Test data')
 args = parser.parse_args()
 dir = args.dir
 ngpus = args.gpus
@@ -111,7 +112,7 @@ class LSTM_classifier():
                 train_loss = self.model.test_on_batch([x[:, :-2,None]], [x[:, -2:]])
                 test_loss = self.model.test_on_batch([test_x[:, :-2, None]], [test_x[:, -2:]])
                 if j == numBatch-1:
-                    print(i+1)
+                    print('epoch: ', i+1)
                     summary =  tf.Summary(value=[
                                         tf.Summary.Value(tag='All_train_loss',
                                                         simple_value=all_train_loss[0]),

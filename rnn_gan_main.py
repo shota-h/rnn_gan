@@ -1,13 +1,14 @@
 # rnn GAN
 # signal generate
 import numpy as np
+import tensorflow as tf
 np.random.seed(1337)
+tf.set_random_seed(1337)
 from keras.models import Sequential
 from keras.layers import Dense, Activation,  pooling, Reshape
 from keras.layers.recurrent import LSTM
 from keras.regularizers import l2
 import keras.optimizers
-import tensorflow as tf
 from keras import backend as K
 from write_slack import write_slack
 import matplotlib.pyplot as plt
@@ -31,6 +32,7 @@ parser.add_argument('--cell', type=int, default =200, help='number of cell')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
 parser.add_argument('--typeflag', type=str, default='normal', help='normal or abnormal')
 parser.add_argument('--datatype', type=str, default='raw', help='raw or model')
+parser.add_argument('--nTrain', type=int, default=50, help='number of train data')
 args = parser.parse_args()
 
 dirs = args.dir
@@ -40,6 +42,7 @@ ngpus = args.gpus
 ncell = args.cell
 TYPEFLAG = args.typeflag
 DATATYPE = args.datatype
+nTrain = args.nTrain
 i_dim = 1
 seq_length = 96
 filedir = os.path.abspath(os.path.dirname(__file__))
@@ -139,7 +142,10 @@ def main():
         print('not open dataset')
     else:
         x = np.load(f.name)
-        x = x[:50]
+        if x.shape[0] <= nTrain:
+            print('minimam shape')
+            sys.exit()
+        x = x[:nTrain]
         plt.plot(x[0])
         plt.savefig('{0}/dataset.tif'.format(filepath))
         plt.close()
