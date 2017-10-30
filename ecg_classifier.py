@@ -1,6 +1,6 @@
 import numpy as np
 np.random.seed(1337)
-from keras.layers import Input, LSTM, Dense, Activation
+from keras.layers import Input, LSTM, Dense, Activation, pooling, Reshape
 from keras.models import Model
 from keras import backend as K
 from keras.models import model_from_json
@@ -17,13 +17,15 @@ K.set_session(session)
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, help='save dir name')
 parser.add_argument('--epoch', type=int, default=100, help='number of epoch')
-parser.add_argument('--ncell', type=int, default=100, help='number of cell')
+parser.add_argument('--ncell', type=int, default=50, help='number of cell')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
 parser.add_argument('--maxdata', type=int, default=10000, help='number of maxdata')
-parser.add_argument('--delta', type=int, default=500, help='data augmentation delta')
+parser.add_argument('--delta', type=int, default=50, help='data augmentation delta')
 parser.add_argument('--flag', type=str, default='train', help='train of predict')
 parser.add_argument('--opt', type=str, default='sgd', help='select optimizer')
 parser.add_argument('--datatype', type=str, default='raw', help='raw or model')
+parser.add_argument('--nTrain', type=int, default=50, help='number of Train data')
+parser.add_argument('--nTest', type=int, default=50, help='number of Test data')
 args = parser.parse_args()
 dir = args.dir
 ngpus = args.gpus
@@ -33,6 +35,8 @@ epoch = args.epoch
 maxdata = args.maxdata
 DATATYPE = args.datatype
 delta = args.delta
+nTrain = args.nTrain
+nTest = args.nTest
 seq_length = 96
 feature_count = 1
 class_count = 2
@@ -49,13 +53,14 @@ from utils.multi_gpu import make_parallel
 
 
 class LSTM_classifier():
-    def __init__(self, nTrain=50, nTest=10):
+    def __init__(self, nTrain=0, nTest=0):
         self.initpath = '{0}/{1}'.format(filedir, dir)
         if os.path.exists(self.initpath) is False:
             os.makedirs(self.initpath)
         self.nTrain = nTrain
         self.nTest = nTest
         self.model = self.build()
+        self.model.summary()
         with open('{0}/model.json'.format(self.initpath), 'w') as f:
             model_json = self.model.to_json()
             json.dump(model_json, f)
@@ -65,7 +70,11 @@ class LSTM_classifier():
     def build(self):
         input = Input(shape=(seq_length, feature_count))
         x = LSTM(units=cell_num, return_sequences=True, dropout=0.2, recurrent_dropout=0.2)(input)
+        x = LSTM(units=cell_num, return_sequences=True, dropout=0.2, recurrent_dropout=0.2)(x)
         x = LSTM(units=class_count)(x)
+        # x = Dense(units=class_count)(x)
+        # x = pooling.AveragePooling1D(pool_size=seq_length, strides=None)(x)
+        # x = Reshape((class_count, ))(x)
         x = Activation(activation='softmax')(x)
         return Model(input, x)
 
@@ -85,7 +94,7 @@ class LSTM_classifier():
     def train(self, epoch=100, ndata=0, aug_flag = 'gan'):
         self.ndata = ndata
         self.model_init()
-        self.model.compile(optimizer=OPT, loss='binary_crossentropy', metrics=['accuracy'])
+        self.model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
         self.filepath = '{0}/{1}/ndata{2}/{3}'.format(filedir, dir, str(ndata), aug_flag)
         if os.path.exists(self.filepath) is False:
             os.makedirs(self.filepath)
@@ -269,7 +278,7 @@ def dataset_load(flag, ndata):
 
 
 def main():
-    model = LSTM_classifier(nTrain=50, nTest=100)
+    model = LSTM_classifier(nTrain=nTrain, nTest=nTest)
     for i in range(0, maxdata+1, delta):
         model.train(epoch=epoch, ndata=i, aug_flag = 'gan')
         model.predict(ndata=i, aug_flag = 'gan')
