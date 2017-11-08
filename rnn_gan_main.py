@@ -79,10 +79,10 @@ def form_discriminator():
     # ,recurrent_regularizer=l2(0.01)
     model = Sequential()
     model.add(LSTM(input_shape=(seq_length, 1), units=ncell, unit_forget_bias=True,
-               return_sequences=True, recurrent_regularizer=l2(0.01)))
+               return_sequences=True, kernel_regularizer=l2(0.01), recurrent_regularizer=l2(0.01), bias_regularizer=l2(0.00)))
     for i in range(nlayer-1):
-        model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
-                   recurrent_regularizer=l2(0.01)))
+        model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True, kernel_regularizer=l2(0.00),
+                   recurrent_regularizer=l2(0.00), bias_regularizer=l2(0.00)))
     model.add(Dense(units=1))
     model.add(Activation('sigmoid'))
     model.add(pooling.AveragePooling1D(pool_size=seq_length, strides=None))
@@ -97,10 +97,9 @@ def form_discriminator():
 def form_generator():
     model = Sequential()
     model.add(LSTM(input_shape=(seq_length, i_dim), units=ncell, unit_forget_bias=True,
-               return_sequences=True, recurrent_regularizer=l2(0.01)))
+               return_sequences=True, kernel_regularizer=l2(0.00), recurrent_regularizer=l2(0.00), bias_regularizer=l2(0.00)))
     for i in range(nlayer - 1):
-        model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
-                   recurrent_regularizer=l2(0.01)))
+        model.add(LSTM(units=ncell, unit_forget_bias=True, return_sequences=True, kernel_regularizer=l2(0.00), recurrent_regularizer=l2(0.00), bias_regularizer=l2(0.00)))
         # G.add(BatchNormalization(momentum=0.9,beta_initializer=initializers.constant(value=0.5),gamma_initializer=initializers.constant(value=0.1)))
     model.add(Dense(units=1))
     model.add(Activation('sigmoid'))
@@ -167,9 +166,9 @@ def main():
         nbatch = int(ndata / sizeBatch)
         loss_ratio = 1.0
         d_num = 0
-        d_real = np.zeros([sizeBatch, 1, 1])
-        d_fake = np.ones([sizeBatch, 1, 1])
-        y_ = np.zeros([sizeBatch, 1, 1])
+        d_real = np.ones([sizeBatch, 1, 1])
+        d_fake = np.zeros([sizeBatch, 1, 1])
+        y_ = np.ones([sizeBatch, 1, 1])
         iters = 1
         print('\n----train step----\n')
         for i in range(epoch):
