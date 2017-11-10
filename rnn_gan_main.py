@@ -25,7 +25,7 @@ adam2 = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,
 sgd1 = keras.optimizers.SGD(lr=0.1, momentum=0.9, decay=0.0, nesterov=False)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dir', type=str, default='rnn_gan', help='code name')
+parser.add_argument('--dir', type=str, default='rnn_gan', help='dir name')
 parser.add_argument('--layer', type=int, default=3, help='number of layers')
 parser.add_argument('--epoch', type=int, default=2000,help='number of epoch')
 parser.add_argument('--cell', type=int, default =200, help='number of cell')
