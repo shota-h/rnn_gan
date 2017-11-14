@@ -14,15 +14,17 @@ from write_slack import write_slack
 import matplotlib.pyplot as plt
 import os, sys, json, itertools, time, argparse
 
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='1'), device_count={'GPU':1})
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
 session = tf.Session(config=config)
 K.set_session(session)
 
-adam1 = keras.optimizers.Adam(lr=0.0002, beta_1=0.5, beta_2=0.999,
+adam1 = keras.optimizers.Adam(lr=0.0001, beta_1=0.5, beta_2=0.999,
                               epsilon=1e-08, decay=0.0)
+# adam1 = keras.optimizers.Adam(lr=0.0005, beta_1=0.5, beta_2=0.999,
+#                               epsilon=1e-08, decay=0.0)
 adam2 = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,
                               epsilon=1e-08, decay=0.0)
-sgd1 = keras.optimizers.SGD(lr=0.1, momentum=0.9, decay=0.0, nesterov=False)
+sgd1 = keras.optimizers.SGD(lr=0.0001, momentum=0.9, decay=0.0, nesterov=False)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='rnn_gan', help='dir name')
@@ -33,6 +35,8 @@ parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
 parser.add_argument('--typeflag', type=str, default='normal', help='normal or abnormal')
 parser.add_argument('--datatype', type=str, default='raw', help='raw or model')
 parser.add_argument('--nTrain', type=int, default=50, help='number of train data')
+parser.add_argument('--length', type=int, default=96, help='sequence length')
+parser.add_argument('--opt', type=str, default='adam', help='optimizer')
 args = parser.parse_args()
 
 dirs = args.dir
@@ -43,11 +47,19 @@ ncell = args.cell
 TYPEFLAG = args.typeflag
 DATATYPE = args.datatype
 nTrain = args.nTrain
-feature_count = 1
-seq_length = 96
-sizeBatch = 10
+seq_length = args.length
+if args.opt == 'adam':
+    opt = adam1
+elif args.opt == 'sgd':
+    opt = sgd1
+else:
+    sys.exit()
 ndata = nTrain
+sizeBatch = nTrain
 nbatch = int(ndata / sizeBatch)
+feature_count = 1
+output_count = 1
+
 filedir = os.path.abspath(os.path.dirname(__file__))
 filepath = '{0}/{1}/{2}-{3}/l{4}_c{5}'.format(filedir, dirs, TYPEFLAG, DATATYPE, nlayer, ncell)
 if os.path.exists(filepath) is False:
@@ -63,20 +75,6 @@ def create_random_input(ndata):
 
 def mean(y_true, y_pred):
     return -tf.reduce_mean(y_pred)
-
-
-def passage_save(x_, epoch, G, D, GAN):
-    tag = 'input_noise'
-    plt.plot(x_[:,:,0].T, '.-')
-    plt.ylim([0, 1])
-    plt.savefig('{0}/epoch{1}_{2}.png'.format(filepath, epoch, tag))
-    plt.close()
-    G.save_weights('{0}/gen_param_epoch{1}.hdf5'
-                   .format(filepath, epoch))
-    D.save_weights('{0}/dis_param_epoch{1}.hdf5'
-                   .format(filepath, epoch))
-    GAN.save_weights('{0}/gan_param_epoch{1}.hdf5'
-                     .format(filepath, epoch))
 
 
 def calc_distances(a, b):
@@ -102,58 +100,112 @@ def get_potential(x, y, dimension, epsilon):
     pkyy = plummer_kernel(y, y, dimension, epsilon)
     pkyx = plummer_kernel(y, x, dimension, epsilon)
     pkxx = np.reshape(pkxx, (nx, nx, -1, 1))
-    pkyx = np.reshape(pkxx, (ny, nx, -1, 1))
+    pkyx = np.reshape(pkyx, (ny, nx, -1, 1))
     pkyy = np.reshape(pkyy, (ny, ny, -1, 1))
     kxx = np.sum(pkxx, axis=0) / nx
     kxy = np.sum(pkyx, axis=1) / nx
     kyx = np.sum(pkyx, axis=0) / ny
     kyy = np.sum(pkyy, axis=0) / ny
-    pot_x = kxx - kyx
-    pot_y = kxy - kyy
+    # pot_x = kxx - kyx
+    # pot_y = kxy - kyy
+    pot_x = kxy - kxx
+    pot_y = kyy - kyx
     return pot_x, pot_y
 
 
-class gan():
+class create_model():
     def __init__(self):
+        filename = '{0}_{1}'.format(TYPEFLAG, DATATYPE)
+        self.y = self.load_dataset(filename)
         self.gene = self.build_generator()
         self.dis = self.build_discriminator()
-        self.dis.compile(optimizer=adam1, loss='mse')
+        self.dis.compile(optimizer=opt, loss='mse')
         self.gan = self.build_gan()
-        self.gan.compile(optimizer=adam1, loss=mean)
+        self.gan.compile(optimizer=opt, loss=mean)
+        self.gene.summary()
+        self.dis.summary()
+        self.gan.summary()
         self.save_model()
+
+    def load_dataset(self, filename):
+        try:
+            f = open('{0}/dataset/{1}.npy'.format(filedir, filename))
+        except:
+            print('not open dataset')
+        else:
+            y = np.load(f.name)
+            if y.shape[0] < nTrain:
+                print('minimam shape')
+                sys.exit()
+            y = y[:nTrain]
+            if seq_length == 2:
+                plt.scatter(y[:,0], y[:,1],marker='o')
+                plt.savefig('{0}/dataset.png'.format(filepath))
+                plt.close()
+            else:
+                plt.plot(y.T)
+                plt.savefig('{0}/dataset.png'.format(filepath))
+                plt.close()
+
+            f.close()
+        finally:
+            pass
+        y = y[:, :, None]
+        np.save('{0}/dataset.npy'.format(filepath), y)
+        return y
 
     def build_generator(self):
         input = Input(shape = (seq_length, feature_count))
-        model = LSTM(units=ncell, unit_forget_bias=True,
+        model = LSTM(units=ncell, use_bias=True, unit_forget_bias=False,
                 return_sequences=True, recurrent_regularizer=l2(0.00))(input)
         for i in range(nlayer - 1):
-            model = LSTM(units=ncell, unit_forget_bias=True, return_sequences=True,
+            model = LSTM(units=ncell, use_bias=True, unit_forget_bias=False, return_sequences=True,
                     recurrent_regularizer=l2(0.00))(model)
-        model = Dense(units=1)(model)
-        model = Activation('sigmoid')(model)
-        # model = Reshape(seq_length, 1)(model)
+        model = LSTM(units=ncell, use_bias=True, unit_forget_bias=False, return_sequences = True)(model)
+        model = Dense(units=1, activation='sigmoid')(model)
 
         return Model(input, model)
 
     def build_discriminator(self):
-        input = Input(shape = (seq_length, feature_count))
-        model =LSTM(units = ncell, unit_forget_bias = True,
+        input = Input(shape = (seq_length, output_count))
+        model =LSTM(units = ncell, use_bias=True, unit_forget_bias = True,
                 return_sequences = True, recurrent_regularizer = l2(0.00))(input)
         for i in range(nlayer - 1):
-            model = LSTM(units = ncell, unit_forget_bias = True, return_sequences = True,
+            model = LSTM(units = ncell, use_bias=True, unit_forget_bias = False, return_sequences = True,
                     recurrent_regularizer = l2(0.00))(model)
-        model = Dense(units = 1)(model)
-        model = Activation('sigmoid')(model)
-        model = pooling.AveragePooling1D(pool_size = seq_length, strides = None)(model)
+        model = LSTM(units = ncell, use_bias=True, unit_forget_bias=False, return_sequences = False)(model)
+        model = Dense(units=1)(model)
+        model = Reshape(target_shape=(-1, 1))(model)
+        # model = pooling.AveragePooling1D(pool_size = seq_length, strides = None)(model)
         
         return Model(input, model)
 
     def build_gan(self):
-        self.dis.trainable = 'False'
+        self.dis.trainable = False
         model = Sequential([self.gene, self.dis])
         return model
         # model = self.dis(self.gene)
         # return Model(self.dis, model)
+
+    def train_dis(self):
+        np.random.shuffle(self.y)
+        z = create_random_input(nTrain)
+        x_ = self.gene.predict([z])
+        pot_x, pot_y = get_potential(x_, self.y, 3, 1e-05)
+        for i in range(nbatch):
+            loss = self.dis.train_on_batch([np.append(self.y[i*sizeBatch:(i+1)*sizeBatch], x_[i*sizeBatch:(i+1)*sizeBatch], axis=0)], [np.append(pot_y[i*sizeBatch:(i+1)*sizeBatch], pot_x[i*sizeBatch:(i+1)*sizeBatch], axis=0)], sample_weight=None)
+        return loss
+
+    def train_gan(self):
+        for i in range(nbatch):
+            z = create_random_input(sizeBatch)
+            loss = self.gan.train_on_batch([z], [self.gan.predict([z])], sample_weight=None)
+        return loss
+    
+    def normal_train(self):
+        loss_d = self.train_dis()
+        loss_g = self.train_gan()
+        return loss_d, loss_g
 
     def save_model(self):
         model_json = self.gan.to_json()
@@ -166,78 +218,61 @@ class gan():
         with open('{0}/model_gene.json'.format(filepath), 'w') as f:
             f = json.dump(model_json, f)
 
-    def train_dis(self, train):
-        np.random.shuffle(train)
-        z = create_random_input(train.shape[0])
-        x_ = self.gene.predict([z])
-        pot_x, pot_y = get_potential(x_, train, 3, 1e-07)
-        for i in range(nbatch):
-            loss1 = self.dis.train_on_batch([train[i*sizeBatch:(i+1)*sizeBatch, :, :]], [pot_y[i*sizeBatch:(i+1)*sizeBatch, :, :]], sample_weight=None)
-            loss2 = self.dis.train_on_batch([x_[i*sizeBatch:(i+1)*sizeBatch, :, :]], [pot_x[i*sizeBatch:(i+1)*sizeBatch, :, :]], sample_weight=None)
-        return [loss1, loss2]
-
-    def train_gan(self):
-        for i in range(nbatch):
-            z = create_random_input(sizeBatch)
-            loss = self.gan.train_on_batch([z], [z], sample_weight=None)
-        return loss
+    def passage_save(self, x_, epoch):
+        if epoch % 10 == 0:
+            if seq_length == 2:
+                plt.scatter(x_[:,0,0], x_[:,1,0], marker='o', alpha = 0.4)
+                plt.scatter(self.y[:,0,0], self.y[:,1,0], marker='o', alpha = 0.4)
+                plt.ylim([0, 1])
+                plt.xlim([0, 1])
+                plt.savefig('{0}/generate_epoch{1}.png'.format(filepath, epoch))
+                plt.close()
+            else:
+                plt.plot(x_[:10,:,0].T, 'red')
+                plt.plot(self.y[:10,:,0].T, 'blue')
+                plt.ylim([0, 1])
+                plt.savefig('{0}/generate_epoch{1}.png'.format(filepath, epoch))
+                plt.close()
+            with open('{0}/gene_param.hdf5'.format(filepath), 'w') as f:
+                self.gene.save_weights(f.name)    
+            with open('{0}/dis_param.hdf5'.format(filepath), 'w') as f:
+                self.dis.save_weights(f.name)    
+            with open('{0}/gan_param.hdf5'.format(filepath), 'w') as f:
+                self.gan.save_weights(f.name)    
 
 
 def main():
     start = time.time()
     print('\n----setup----\n')
-    try:
-        f = open('{0}/dataset/{1}_{2}.npy'.format(filedir, TYPEFLAG, DATATYPE))
-    except:
-        print('not open dataset')
-    else:
-        x = np.load(f.name)
-        if x.shape[0] <= nTrain:
-            print('minimam shape')
-            sys.exit()
-        x = x[:nTrain]
-        plt.plot(x[0])
-        plt.savefig('{0}/dataset.tif'.format(filepath))
-        plt.close()
-        f.close()
-    finally:
-        pass
-    x = x[:, :, None]
-    np.save('{0}/dataset.npy'.format(filepath), x)
     with tf.Session(config=config) as sess:
         writer = tf.summary.FileWriter('{0}'.format(filepath), sess.graph)
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
-        model = gan()
+        model = create_model()
 
         Z = create_random_input(5)
         loss_ratio = 1.0
         iters = 1
         print('\n----train step----\n')
         for i in range(epoch):
-            if loss_ratio >= 0.7:
-                loss_d = model.train_dis(x)                 
-                loss_g = model.train_gan()                 
-
+            # if loss_ratio >= 0.7:
+            loss_d, loss_g = model.normal_train()
             if (i + 1) % 1 == 0:
                 print('epoch:{0}'.format(i+1))
                 x_ = model.gene.predict([create_random_input(1)])
                 pred_g = model.dis.predict([x_])[0, 0, 0]
-                pred_d = model.dis.predict([x[:1, :, :]])[0, 0, 0]
+                pred_d = model.dis.predict([model.y[:1, :, :]])[0, 0, 0]
                 summary = tf.Summary(value=[
-                                     tf.Summary.Value(tag='loss_real',
-                                                      simple_value=loss_d[0]),
-                                     tf.Summary.Value(tag='loss_fake',
-                                                      simple_value=loss_d[1]),
+                                     tf.Summary.Value(tag='loss_dis',
+                                                      simple_value=loss_d),
                                      tf.Summary.Value(tag='loss_gan',
                                                       simple_value=loss_g),
-                                     tf.Summary.Value(tag='predict_x',
+                                     tf.Summary.Value(tag='predict_y',
                                                       simple_value=pred_d),
-                                     tf.Summary.Value(tag='predict_z',
+                                     tf.Summary.Value(tag='predict_x',
                                                       simple_value=pred_g), ])
                 writer.add_summary(summary, i+1)
-            if (i+1) % 1 == 0:
-                passage_save(model.gene.predict([Z]), i+1, model.gene, model.dis, model.gan)
+                model.passage_save(model.gene.predict([create_random_input(nTrain)]), i+1)
             loss_ratio = 1.0
             # loss_ratio = ((loss_d[0]+loss_d[1])/2)/loss_gan
     K.clear_session()
