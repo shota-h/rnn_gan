@@ -259,23 +259,23 @@ def classifier_lstm():
 def classifier_nearest_neighbor(nTrain, nTest, ndata, aug, dis):    
     train_x = np.load('{0}/dataset/{1}/normal_train.npy'.format(filedir, datadir))
     buff = np.load('{0}/dataset/{1}/normal_{2}.npy'.format(filedir, datadir, aug))
-    # train_x = np.append(train_x, buff[:ndata], axis=0)
-    for i in range(ndata):
-        train_x = np.append(train_x, train_x, axis=0)
+    train_x = np.append(train_x, buff[:ndata], axis=0)
+    # for i in range(ndata):
+    #     train_x = np.append(train_x, train_x, axis=0)
 
     x = np.load('{0}/dataset/{1}/abnormal_train.npy'.format(filedir, datadir))
     buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
     buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
     train_x = np.append(train_x, x[:nTrain], axis=0)
-    for i in range(ndata):
-        train_x = np.append(train_x, x[:nTrain], axis=0)
-    # train_x = np.append(train_x, buff[:ndata], axis=0)
-    
+    # for i in range(ndata):
+    #     train_x = np.append(train_x, x[:nTrain], axis=0)
+    train_x = np.append(train_x, buff[:ndata], axis=0)
     test_x = np.load('{0}/dataset/{1}/normal_test.npy'.format(filedir, datadir))
     buff = np.load('{0}/dataset/{1}/abnormal_test.npy'.format(filedir, datadir))
     test_x = np.append(test_x, buff, axis=0)
     
-    nTrain = nTrain + ndata * nTrain
+    # nTrain = nTrain + (ndata+1) * nTrain
+    nTrain = int(train_x.shape[0]/2)
     if dis == 'dtw':
         loss, m, s = dtw(test_x, train_x)
     elif dis == 'mse':
@@ -285,9 +285,9 @@ def classifier_nearest_neighbor(nTrain, nTest, ndata, aug, dis):
         return
     loss = loss.reshape(nTest*2, -1)
     n = np.argmin(loss, axis=1)
-    buff = np.where(n[:nTrain] < nTrain)
+    buff = np.where(n[:nTest] < nTrain)
     acc = len(buff[0])
-    buff = np.where(n[nTrain:] >= nTrain)
+    buff = np.where(n[nTest:] >= nTrain)
     acc += len(buff[0])
     acc /= (nTest*2)
     return acc
@@ -299,8 +299,8 @@ def classifier_NN(dis):
         os.makedirs(filepath)
 
     Acc = []
-    # for i, j in itertools.product(range(0, maxdata+1, delta), flag_list):
-    for i, j in itertools.product(range(0, 5, 1), flag_list):
+    for i, j in itertools.product(range(0, maxdata+1, delta), flag_list):
+    # for i, j in itertools.product(range(0, 5, 1), flag_list):
         print('ndata: {0}'.format(i))
         print('Aug method: {0}'.format(j))
         if j == flag_list[0]:
@@ -322,7 +322,7 @@ def classifier_NN(dis):
 
 def main():
     # classifier_NN('dtw')
-    classifier_NN('mse')
+    classifier_NN('dtw')
     # classifier_lstm()
     write_slack('ecg-classifier', 'finish')
 
