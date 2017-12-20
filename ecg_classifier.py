@@ -7,28 +7,31 @@ from keras.models import Model
 from keras import backend as K
 from keras.models import model_from_json
 from keras import optimizers
+from keras.utils import multi_gpu_model
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os, sys, json, datetime, itertools, time, argparse, csv
 from calc_loss import dtw, mse
 from write_slack import write_slack
 
 
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0,1'), device_count={'GPU':2})
 session = tf.Session(config=config)
 K.set_session(session)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, help='save dir name')
 parser.add_argument('--epoch', type=int, default=100, help='number of epoch')
-parser.add_argument('--cell', type=int, default=50, help='number of cell')
+parser.add_argument('--cell', type=int, default=10, help='number of cell')
 parser.add_argument('--gpus', type=int, default=1, help='number of GPUs')
-parser.add_argument('--maxdata', type=int, default=10000, help='number of maxdata')
-parser.add_argument('--delta', type=int, default=50, help='data augmentation delta')
+parser.add_argument('--maxdata', type=int, default=200, help='number of maxdata')
+parser.add_argument('--delta', type=int, default=10, help='data augmentation delta')
 parser.add_argument('--flag', type=str, default='train', help='train of predict')
-parser.add_argument('--opt', type=str, default='sgd', help='select optimizer')
+parser.add_argument('--opt', type=str, default='adam', help='select optimizer')
 parser.add_argument('--dataset', type=str, default='raw', help='raw or model')
-parser.add_argument('--nTrain', type=int, default=50, help='number of Train data')
-parser.add_argument('--nTest', type=int, default=20, help='number of Test data')
+parser.add_argument('--nTrain', type=int, default=20, help='number of Train data')
+parser.add_argument('--nTest', type=int, default=40, help='number of Test data')
 parser.add_argument('--nBatch', type=int, default=1, help='number of Batch')
 parser.add_argument('--length', type=int, default=96, help='sequence length')
 parser.add_argument('--datadir', type=str, default='ECG1', help='dataset dir')
@@ -59,8 +62,6 @@ elif args.opt == 'adam':
     OPT = optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,epsilon=1e-08, decay=0.0)
 
 filedir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append('{0}/keras-extras'.format(filedir))
-from utils.multi_gpu import make_parallel
 
 
 class LSTM_classifier():
@@ -213,58 +214,6 @@ class LSTM_classifier():
         return x, test_x
 
 
-def classifier_nearest_neighbor(nTrain, nTest, ndata, aug):    
-    train_x = np.load('{0}/dataset/{1}/normal_train.npy'.format(filedir, datadir))
-    buff = np.load('{0}/dataset/{1}/normal_{2}.npy'.format(filedir, datadir, aug))
-    train_x = np.append(train_x, buff[:ndata], axis=0)
-
-    x = np.load('{0}/dataset/{1}/abnormal_train.npy'.format(filedir, datadir))
-    buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
-    train_x = np.append(train_x, x[:nTrain], axis=0)
-    train_x = np.append(train_x, buff[:ndata], axis=0)
-    
-    test_x = np.load('{0}/dataset/{1}/normal_test.npy'.format(filedir, datadir))
-    buff = np.load('{0}/dataset/{1}/abnormal_test.npy'.format(filedir, datadir))
-    test_x = np.append(test_x, buff, axis=0)
-    
-    nTrain = nTrain + ndata
-    loss, m, s = dtw(test_x, train_x)
-    loss = loss.reshape(nTest*2, -1)
-    n = np.argmin(loss, axis=1)
-    buff = np.where(n[:nTrain] < nTrain)
-    acc = len(buff[0])
-    buff = np.where(n[nTrain:] >= nTrain)
-    acc += len(buff[0])
-    acc /= (nTest*2)
-    return acc
-
-
-def classifier_mean_square_error(nTrain, nTest, ndata, aug):    
-    train_x = np.load('{0}/dataset/{1}/normal_train.npy'.format(filedir, datadir))
-    buff = np.load('{0}/dataset/{1}/normal_{2}.npy'.format(filedir, datadir, aug))
-    train_x = np.append(train_x, buff[:ndata], axis=0)
-
-    x = np.load('{0}/dataset/{1}/abnormal_train.npy'.format(filedir, datadir))
-    buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
-    train_x = np.append(train_x, x[:nTrain], axis=0)
-    train_x = np.append(train_x, buff[:ndata], axis=0)
-    
-    test_x = np.load('{0}/dataset/{1}/normal_test.npy'.format(filedir, datadir))
-    buff = np.load('{0}/dataset/{1}/abnormal_test.npy'.format(filedir, datadir))
-    test_x = np.append(test_x, buff, axis=0)
-    
-    nTrain = nTrain + ndata
-    loss, m, s = mse(test_x, train_x)
-    loss = loss.reshape(nTest*2, -1)
-    n = np.argmin(loss, axis=1)
-    buff = np.where(n[:nTrain] < nTrain)
-    acc = len(buff[0])
-    buff = np.where(n[nTrain:] >= nTrain)
-    acc += len(buff[0])
-    acc /= (nTest*2)
-    return acc
-
-
 def classifier_lstm():
     model = LSTM_classifier(nTrain=nTrain, nTest=nTest)
     with open('{0}/condition.csv'.format(model.initpath), 'w') as f:
@@ -307,51 +256,63 @@ def classifier_lstm():
             writer.writerow(Acc_test[:, i])
 
 
-def classifier_nn():
-    filepath = '{0}/ecg-classifier/{1}-{2}/classifier-1NN-dsw'.format(filedir, dir, datadir)
+def classifier_nearest_neighbor(nTrain, nTest, ndata, aug, dis):    
+    train_x = np.load('{0}/dataset/{1}/normal_train.npy'.format(filedir, datadir))
+    buff = np.load('{0}/dataset/{1}/normal_{2}.npy'.format(filedir, datadir, aug))
+    # train_x = np.append(train_x, buff[:ndata], axis=0)
+    for i in range(ndata):
+        train_x = np.append(train_x, train_x, axis=0)
+
+    x = np.load('{0}/dataset/{1}/abnormal_train.npy'.format(filedir, datadir))
+    buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
+    buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
+    train_x = np.append(train_x, x[:nTrain], axis=0)
+    for i in range(ndata):
+        train_x = np.append(train_x, x[:nTrain], axis=0)
+    # train_x = np.append(train_x, buff[:ndata], axis=0)
+    
+    test_x = np.load('{0}/dataset/{1}/normal_test.npy'.format(filedir, datadir))
+    buff = np.load('{0}/dataset/{1}/abnormal_test.npy'.format(filedir, datadir))
+    test_x = np.append(test_x, buff, axis=0)
+    
+    nTrain = nTrain + ndata * nTrain
+    if dis == 'dtw':
+        loss, m, s = dtw(test_x, train_x)
+    elif dis == 'mse':
+        loss, m, s = mse(test_x, train_x)
+    else:
+        print('selected dtw or mse')
+        return
+    loss = loss.reshape(nTest*2, -1)
+    n = np.argmin(loss, axis=1)
+    buff = np.where(n[:nTrain] < nTrain)
+    acc = len(buff[0])
+    buff = np.where(n[nTrain:] >= nTrain)
+    acc += len(buff[0])
+    acc /= (nTest*2)
+    return acc
+
+
+def classifier_NN(dis):
+    filepath = '{0}/ecg-classifier/{1}-{2}'.format(filedir, dir, datadir)
     if os.path.exists(filepath) is False:
         os.makedirs(filepath)
 
     Acc = []
-    for i, j in itertools.product(range(0, maxdata+1, delta), flag_list):
+    # for i, j in itertools.product(range(0, maxdata+1, delta), flag_list):
+    for i, j in itertools.product(range(0, 5, 1), flag_list):
         print('ndata: {0}'.format(i))
         print('Aug method: {0}'.format(j))
         if j == flag_list[0]:
             buff = []
-        acc = classifier_nearest_neighbor(nTrain=nTrain, nTest=nTest, ndata=i, aug=j)
+        acc = classifier_nearest_neighbor(nTrain=nTrain, nTest=nTest, ndata=i, aug=j, dis=dis)
         buff.append(acc)
         if j == flag_list[-1]:
             Acc.append(buff)
     
     Acc = np.array(Acc)
     label = ['ndata: {0}'.format(i) for i in range(0, maxdata+1, delta)]
-    with open('{0}/NN_Identification_rate.csv'.format(filepath),'w') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(label)
-        for i, j in enumerate(flag_list):
-            writer.writerow([j])
-            writer.writerow(Acc[:,i])
-
-
-def classifier_mse():
-    filepath = '{0}/ecg-classifier/{1}-{2}/classifier-1NN-mse'.format(filedir, dir, datadir)
-    if os.path.exists(filepath) is False:
-        os.makedirs(filepath)
-
-    Acc = []
-    for i, j in itertools.product(range(0, maxdata+1, delta), flag_list):
-        print('ndata: {0}'.format(i))
-        print('Aug method: {0}'.format(j))
-        if j == flag_list[0]:
-            buff = []
-        acc = classifier_mean_square_error(nTrain=nTrain, nTest=nTest, ndata=i, aug=j)
-        buff.append(acc)
-        if j == flag_list[-1]:
-            Acc.append(buff)
-    
-    Acc = np.array(Acc)
-    label = ['ndata: {0}'.format(i) for i in range(0, maxdata+1, delta)]
-    with open('{0}/NN_Identification_rate.csv'.format(filepath),'w') as f:
+    with open('{0}/NN_Identification_rate_{1}.csv'.format(filepath, dis),'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(label)
         for i, j in enumerate(flag_list):
@@ -360,8 +321,8 @@ def classifier_mse():
 
 
 def main():
-    # classifier_nn()
-    classifier_mse()
+    # classifier_NN('dtw')
+    classifier_NN('mse')
     # classifier_lstm()
     write_slack('ecg-classifier', 'finish')
 
