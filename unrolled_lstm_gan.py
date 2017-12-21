@@ -11,6 +11,7 @@ from keras.layers import Input, Dense, Activation, pooling, Reshape
 from keras.models import Sequential, Model
 from keras.layers.recurrent import LSTM
 from keras.regularizers import l2
+from keras.utils import multi_gpu_model
 import keras.optimizers
 from keras import backend as K
 from write_slack import write_slack
@@ -39,6 +40,7 @@ parser.add_argument('--trainflag', type=str, default='vanila', help='training fl
 parser.add_argument('--datadir', type=str, default='ECG1', help='dataset dir')
 parser.add_argument('--nAug', type=int, default=1000, help='number of data augmentation')
 parser.add_argument('--nBatch', type=int, default=1, help='number of Batch')
+parser.add_argument('--gpus', type=int, default=1, help='number gpus')
 args = parser.parse_args()
 
 dirs = args.dir
@@ -60,6 +62,7 @@ elif args.opt == 'sgd':
 else:
     sys.exit()
 nbatch = args.nBatch
+gpus = args.gpus
 sbatch = int(nTrain / nbatch)
 feature_count = 1
 output_count = 1
@@ -73,7 +76,7 @@ if os.path.exists(filepath) is False:
     os.makedirs(filepath)
 
 os.environ['PYTHONHASHSEED'] = '0'
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1}, intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0,1'), device_count={'GPU':2}, intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
 session = tf.Session(config=config)
 K.set_session(session)
 
@@ -100,7 +103,12 @@ class create_model():
         self.gan = self.build_gan()
         self.gan.compile(optimizer=opt, loss='binary_crossentropy')
         self.save_model()
-        
+        if gpus > 1:
+            self.para_dis = multi_gpu_model(self.dis, gpus)
+            self.para_gan =  multi_gpu_model(self.gan, gpus)
+            self.para_dis.compile(optimizer=opt, loss='binary_crossentropy')
+            self.para_gan.compile(optimizer=opt, loss='binary_crossentropy')
+
     def load_dataset(self, filename):
         try:
             f = open('{0}/dataset/{2}/{1}.npy'.format(filedir, filename, datadir))
@@ -150,12 +158,15 @@ class create_model():
         model = Sequential([self.gene, self.dis])
         return model
 
-    def train_dis(self, flag=None, flag_num=None, gpus = None):
+    def train_dis(self, flag=None, flag_num=None):
         np.random.shuffle(self.y)
         z = create_random_input(nTrain)
         x_ = self.gene.predict([z])
         for i in range(nbatch):
-            loss = self.dis.train_on_batch([np.append(self.y[i*sbatch:(i+1)*sbatch], x_[i*sbatch:(i+1)*sbatch], axis=0)], [np.append(self.target_y[i*sbatch:(i+1)*sbatch], self.target_x[i*sbatch:(i+1)*sbatch], axis=0)], sample_weight=None)
+            if gpus > 1:
+                loss = self.para_dis.train_on_batch([np.append(self.y[i*sbatch:(i+1)*sbatch], x_[i*sbatch:(i+1)*sbatch], axis=0)], [np.append(self.target_y[i*sbatch:(i+1)*sbatch], self.target_x[i*sbatch:(i+1)*sbatch], axis=0)], sample_weight=None)    
+            else:
+                loss = self.dis.train_on_batch([np.append(self.y[i*sbatch:(i+1)*sbatch], x_[i*sbatch:(i+1)*sbatch], axis=0)], [np.append(self.target_y[i*sbatch:(i+1)*sbatch], self.target_x[i*sbatch:(i+1)*sbatch], axis=0)], sample_weight=None)
             if flag == 'unroll' and flag_num == 0:
                 with open('{0}/dis_param_unroll.hdf5'.format(filepath), 'w') as f:
                     self.dis.save_weights(f.name)
@@ -164,7 +175,10 @@ class create_model():
     def train_gan(self):
         for i in range(nbatch):
             z = create_random_input(sbatch)
-            loss = self.gan.train_on_batch([z], [self.target_z], sample_weight=None)
+            if gpus > 1:
+                loss = self.para_gan.train_on_batch([z], [self.target_z], sample_weight=None)    
+            else:
+                loss = self.gan.train_on_batch([z], [self.target_z], sample_weight=None)
         return loss
     
     def normal_train(self):
