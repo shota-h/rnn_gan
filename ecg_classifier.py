@@ -108,6 +108,10 @@ class LSTM_classifier():
         self.x, self.test_x = self.load_data(flag=aug_flag)
         self.model_init()
         self.model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
+        if gpus > 1:
+            self.para_model = multi_gpu_model(self.mode, gpus)
+            self.para_model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
+
         self.filepath = '{0}/ndata{1}/{2}'.format(self.initpath, str(ndata), aug_flag)
         if os.path.exists(self.filepath) is False:
             os.makedirs(self.filepath)
@@ -123,8 +127,11 @@ class LSTM_classifier():
             for i, j in itertools.product(range(epoch), range(numBatch)):
                 if j == 0:
                     np.random.shuffle(self.x)
-                train_loss = self.model.train_on_batch([self.x[j*sizeBatch:(j+1)*sizeBatch, :-2, None]], [self.x[j*sizeBatch:(j+1)*sizeBatch, -2:]])
-                # train_loss = self.model.train_on_batch([self.x[:, :-2,None]], [self.x[:, -2:]])
+                if gpus > 1:
+                    train_loss = self.model.train_on_batch([self.x[j*sizeBatch:(j+1)*sizeBatch, :-2, None]], [self.x[j*sizeBatch:(j+1)*sizeBatch, -2:]])
+                else:
+                    train_loss = self.para_model.train_on_batch([self.x[j*sizeBatch:(j+1)*sizeBatch, :-2, None]], [self.x[j*sizeBatch:(j+1)*sizeBatch, -2:]])
+
                 if j == numBatch-1:
                     # print('epoch: ', i+1)
                     train_loss = self.model.test_on_batch([self.x[:, :-2,None]], [self.x[:, -2:]])
@@ -260,21 +267,17 @@ def classifier_nearest_neighbor(nTrain, nTest, ndata, aug, dis):
     train_x = np.load('{0}/dataset/{1}/normal_train.npy'.format(filedir, datadir))
     buff = np.load('{0}/dataset/{1}/normal_{2}.npy'.format(filedir, datadir, aug))
     train_x = np.append(train_x, buff[:ndata], axis=0)
-    # for i in range(ndata):
-    #     train_x = np.append(train_x, train_x, axis=0)
 
     x = np.load('{0}/dataset/{1}/abnormal_train.npy'.format(filedir, datadir))
     buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
     buff = np.load('{0}/dataset/{1}/abnormal_{2}.npy'.format(filedir, datadir, aug))
     train_x = np.append(train_x, x[:nTrain], axis=0)
-    # for i in range(ndata):
-    #     train_x = np.append(train_x, x[:nTrain], axis=0)
     train_x = np.append(train_x, buff[:ndata], axis=0)
+    
     test_x = np.load('{0}/dataset/{1}/normal_test.npy'.format(filedir, datadir))
     buff = np.load('{0}/dataset/{1}/abnormal_test.npy'.format(filedir, datadir))
     test_x = np.append(test_x, buff, axis=0)
-    
-    # nTrain = nTrain + (ndata+1) * nTrain
+
     nTrain = int(train_x.shape[0]/2)
     if dis == 'dtw':
         loss, m, s = dtw(test_x, train_x)
@@ -283,6 +286,7 @@ def classifier_nearest_neighbor(nTrain, nTest, ndata, aug, dis):
     else:
         print('selected dtw or mse')
         return
+
     loss = loss.reshape(nTest*2, -1)
     n = np.argmin(loss, axis=1)
     buff = np.where(n[:nTest] < nTrain)
@@ -300,7 +304,6 @@ def classifier_NN(dis):
 
     Acc = []
     for i, j in itertools.product(range(0, maxdata+1, delta), flag_list):
-    # for i, j in itertools.product(range(0, 5, 1), flag_list):
         print('ndata: {0}'.format(i))
         print('Aug method: {0}'.format(j))
         if j == flag_list[0]:
@@ -321,7 +324,7 @@ def classifier_NN(dis):
 
 
 def main():
-    # classifier_NN('dtw')
+    # classifier_NN('mse')
     classifier_NN('dtw')
     # classifier_lstm()
     write_slack('ecg-classifier', 'finish')
