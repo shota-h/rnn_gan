@@ -1,12 +1,18 @@
 # rnn GAN
 # signal generate
 import numpy as np
+import random as rn
 import tensorflow as tf
+import os, sys, json, itertools, time, argparse, csv
+
+np.random.seed(1337)
+rn.seed(1337)
+tf.set_random_seed(1337)
+os.environ['PYTHONHASHSEED'] = '0'
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-np.random.seed(1337)
-tf.set_random_seed(1337)
 from keras.layers import Input, Dense, Activation, pooling, Reshape
 from keras.models import Sequential, Model
 from keras.layers.recurrent import LSTM
@@ -15,7 +21,6 @@ from keras.utils import multi_gpu_model
 import keras.optimizers
 from keras import backend as K
 from write_slack import write_slack
-import os, sys, json, itertools, time, argparse, csv
 
 adam1 = keras.optimizers.Adam(lr=0.0001, beta_1=0.5, beta_2=0.999,
                               epsilon=1e-08, decay=0.0)
@@ -69,16 +74,18 @@ output_count = 1
 numl2 = 0.01
 nroll = 5
 
+if gpus > 1:
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0, 1'), device_count={'GPU':2})
+else:
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
+
+session = tf.Session(config=config)
+K.set_session(session)
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 filepath = '{0}/unrolled-lstm-gan/{1}-{7}/{2}-{3}-{4}/l{5}_c{6}'.format(filedir, dirs, TYPEFLAG, DATATYPE, train_flag, nlayer, ncell, datadir)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
-
-os.environ['PYTHONHASHSEED'] = '0'
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0,1'), device_count={'GPU':2}, intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
-session = tf.Session(config=config)
-K.set_session(session)
 
 
 def create_random_input(ndata):
