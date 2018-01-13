@@ -1,7 +1,13 @@
 import numpy as np
+import random as rn
 import tensorflow as tf
+import os, sys, json, itertools, argparse, csv, time
+
 np.random.seed(1337)
+rn.seed(1337)
 tf.set_random_seed(1337)
+# os.environ['PYTHONHASHSEED'] = '0'
+
 from keras.layers import Input, LSTM, Dense, Activation, pooling, Reshape
 from keras.models import Model
 from keras import backend as K
@@ -11,14 +17,9 @@ from keras.utils import multi_gpu_model
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import os, sys, json, datetime, itertools, time, argparse, csv
 from calc_loss import dtw, mse
 from write_slack import write_slack
 
-
-config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0,1'), device_count={'GPU':2})
-session = tf.Session(config=config)
-K.set_session(session)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, help='save dir name')
@@ -38,7 +39,7 @@ parser.add_argument('--datadir', type=str, default='ECG1', help='dataset dir')
 # parser.add_argument('--aug', type=str, default='gan', help='augment method')
 args = parser.parse_args()
 dir = args.dir
-ngpus = args.gpus
+gpus = args.gpus
 FLAG = args.flag
 cell = args.cell
 epoch = args.epoch
@@ -53,8 +54,15 @@ nBatch = args.nBatch
 seq_length = args.length
 feature_count = 1
 class_count = 2
-flag_list = ['gan', 'inter', 'noise', 'hmm']
-
+flag_list = ['gan', 'noise', 'inter', 'hmm']
+# flag_list = ['gan']
+if gpus > 1:
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0,1'), device_count={'GPU':2})
+else:
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
+    pass
+session = tf.Session(config=config)
+K.set_session(session)
 
 if args.opt == 'sgd':
     OPT = optimizers.SGD(lr=0.1, momentum=0.2, decay=0.0, nesterov=False)
@@ -109,7 +117,7 @@ class LSTM_classifier():
         self.model_init()
         self.model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
         if gpus > 1:
-            self.para_model = multi_gpu_model(self.mode, gpus)
+            self.para_model = multi_gpu_model(self.model, gpus)
             self.para_model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
 
         self.filepath = '{0}/ndata{1}/{2}'.format(self.initpath, str(ndata), aug_flag)
@@ -120,6 +128,9 @@ class LSTM_classifier():
         sizeBatch = int(self.x.shape[0]/numBatch)
         # numBatch = int(self.x.shape[0]/sizeBatch)
         # numBatch = 1
+        np.random.seed(1337)
+        rn.seed(1337)
+        tf.set_random_seed(1337)
         with tf.Session(config=config) as sess:
             writer = tf.summary.FileWriter('{0}'.format(self.filepath), sess.graph)
             sess.run(tf.global_variables_initializer())
@@ -128,12 +139,15 @@ class LSTM_classifier():
                 if j == 0:
                     np.random.shuffle(self.x)
                 if gpus > 1:
-                    train_loss = self.model.train_on_batch([self.x[j*sizeBatch:(j+1)*sizeBatch, :-2, None]], [self.x[j*sizeBatch:(j+1)*sizeBatch, -2:]])
-                else:
                     train_loss = self.para_model.train_on_batch([self.x[j*sizeBatch:(j+1)*sizeBatch, :-2, None]], [self.x[j*sizeBatch:(j+1)*sizeBatch, -2:]])
+                else:
+                    train_loss = self.model.train_on_batch([self.x[j*sizeBatch:(j+1)*sizeBatch, :-2, None]], [self.x[j*sizeBatch:(j+1)*sizeBatch, -2:]])
 
                 if j == numBatch-1:
-                    # print('epoch: ', i+1)
+                    sys.stdout.write('\repoch: {0}'.format(i+1))
+                    sys.stdout.flush()
+                    time.sleep(0.01)
+                    
                     train_loss = self.model.test_on_batch([self.x[:, :-2,None]], [self.x[:, -2:]])
                     test_loss = self.model.test_on_batch([self.test_x[:, :-2, None]], [self.test_x[:, -2:]])
                     summary =  tf.Summary(value=[
@@ -146,6 +160,7 @@ class LSTM_classifier():
                                         tf.Summary.Value(tag='test_acc',
                                                         simple_value=test_loss[1]),])
                     writer.add_summary(summary, i+1)
+            print()
             self.model.save_weights('{0}/param.hdf5'.format(self.filepath))
 
     
@@ -242,6 +257,7 @@ def classifier_lstm():
         print('ndata: {0}'.format(i))
         print('Aug method: {0}'.format(j))
         model.train(epoch=epoch, ndata=i, aug_flag = j)
+        # model.train(epoch=epoch, ndata=0, aug_flag = j)
         acc_train, acc_test = model.predict(ndata=i, aug_flag=j)
         buff_train.append(acc_train)
         buff_test.append(acc_test)
@@ -280,13 +296,12 @@ def classifier_nearest_neighbor(nTrain, nTest, ndata, aug, dis):
 
     nTrain = int(train_x.shape[0]/2)
     if dis == 'dtw':
-        loss, m, s = dtw(test_x, train_x)
+        loss, m, s = dtw(test_x[:, 10:], train_x)
     elif dis == 'mse':
         loss, m, s = mse(test_x, train_x)
     else:
         print('selected dtw or mse')
         return
-
     loss = loss.reshape(nTest*2, -1)
     n = np.argmin(loss, axis=1)
     buff = np.where(n[:nTest] < nTrain)
@@ -324,10 +339,10 @@ def classifier_NN(dis):
 
 
 def main():
-    # classifier_NN('mse')
-    classifier_NN('dtw')
-    # classifier_lstm()
+    classifier_lstm()
+    classifier_NN('mse')
     write_slack('ecg-classifier', 'finish')
+    # classifier_NN('dtw')
 
 if __name__=='__main__':
     main()
