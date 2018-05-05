@@ -32,12 +32,12 @@ adam2 = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,
 sgd1 = keras.optimizers.SGD(lr=0.0001, momentum=0.9, decay=0.0, nesterov=False)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dir', type=str, default='rnn_gan', help='dir name')
+parser.add_argument('--dir', type=str, default='lstm-aae', help='dir name')
 parser.add_argument('--layer', type=int, default=3, help='number of layers')
 parser.add_argument('--epoch', type=int, default=2000,help='number of epoch')
 parser.add_argument('--cell', type=int, default =200, help='number of cell')
 parser.add_argument('--opt', type=str, default='adam', help='optimizer')
-parser.add_argument('--visible_device', type=str, default='0', help='visible device')
+parser.add_argument('--gpuid', type=str, default='0', help='gpu id')
 parser.add_argument('--trainflag', type=str, default='vanila', help='training flag')
 parser.add_argument('--datadir', type=str, default='EEG1', help='dataset dir')
 parser.add_argument('--nAug', type=int, default=1000, help='number of data augmentation')
@@ -49,14 +49,16 @@ dirs = args.dir
 nlayer = args.layer
 epoch = args.epoch
 ncell = args.cell
-visible_device = args.visible_device
+visible_device = args.gpuid
 train_flag = args.trainflag
 datadir = args.datadir
 nAug = args.nAug
 if args.opt == 'adam':
-    opt = adam1
+    # opt = keras.optimizers.Adam(lr=0.0001, beta_1=0.5, beta_2=0.999,
+    opt = keras.optimizers.Adam(lr=0.0002, beta_1=0.5, beta_2=0.999,
+                              epsilon=1e-08, decay=0.0)
 elif args.opt == 'sgd':
-    opt = sgd1
+    opt = keras.optimizers.SGD(lr=0.0001, momentum=0.9, decay=0.0, nesterov=False)
 else:
     sys.exit()
 nbatch = args.nBatch
@@ -69,13 +71,13 @@ std_normal = 1
 if gpus > 1:
     config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0, 1'), device_count={'GPU':2})
 else:
-    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list=visible_device), device_count={'GPU':1})
 
 session = tf.Session(config=config)
 K.set_session(session)
 
 filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/lstm-aae/{1}'.format(filedir, datadir)
+filepath = '{0}/{1}/{2}'.format(filedir, dirs, datadir)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
     os.makedirs(filepath+'/encode')
@@ -90,8 +92,8 @@ def add_tensor(x):
     return xx
 
 
-def create_input(ndata):
-    return np.random.normal(loc=0.0, scale=std_normal, size=[ndata, dim_less])
+def create_input(ndata, loc=0.0, std_normal=std_normal):
+    return np.random.normal(loc=loc, scale=std_normal, size=[ndata, dim_less])
 
 
 def mean(y_true, y_pred):
@@ -105,10 +107,11 @@ class create_model():
         # filename = 'abnormal_train'
         # abnormal_y = self.load_dataset(filename)
         filename = 'normarized_uni0'
-        self.y = self.load_dataset(filename)
+        self.y, self.t = self.load_dataset(filename)
         # self.y = np.append(normal_y, abnormal_y, axis=0)
         # self.t = [-1]*normal_y.shape[0] + [1]*abnormal_y.shape[0]
         # self.t = np.array(self.t)
+
         global feature_count
         feature_count = self.y.shape[-1]
         global nTrain
@@ -125,7 +128,7 @@ class create_model():
         self.decoder = self.build_decoder()
         # self.classifier = self.build_classifier()
         self.decoder.summary()
-        self.discriminator.compile(optimizer=opt, loss='binary_crossentropy')
+        self.discriminator.compile(optimizer=opt, loss='binary_crossentropy', loss_weights=[1])
         self.encoder.compile(optimizer=opt, loss='binary_crossentropy')
         self.decoder.compile(optimizer=opt, loss='mse')
         
@@ -141,14 +144,16 @@ class create_model():
         self.aae = Model(signal, [reconstructed_signal, disc])
         self.aae.summary()
         # self.aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy','binary_crossentropy'], loss_weights=[0.999, 0.001, 0.001])
-        self.aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[0.999, 0.001])
+        # self.aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[0.999, 0.001])
+        self.aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[1, 1])
 
         self.save_model()
         if gpus > 1:
             self.para_dis = multi_gpu_model(self.discriminator, gpus)
             self.para_aae =  multi_gpu_model(self.aae, gpus)
-            self.para_dis.compile(optimizer=opt, loss='binary_crossentropy')
-            self.para_aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[0.999, 0.001])
+            self.para_dis.compile(optimizer=opt, loss='binary_crossentropy', loss_weights=[1])
+            self.para_aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[1, 1])
+            # self.para_aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[0.999, 0.001])
             # self.para_aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy'], loss_weights=[0.999, 0.001, 0.001])
             # self.para_aae.compile(optimizer=opt, loss=['mse', 'binary_crossentropy','binary_crossentropy'], loss_weights=[0.999, 0.001, 0.001])
 
@@ -168,14 +173,17 @@ class create_model():
         finally:
             pass
         # train_y = train_y[..., None]
+        label_y = train_y[:,0,-1]*127
+        label_y = label_y.astype(int)
         train_y = train_y[:,:,:-1]
-        return train_y
+
+        return train_y, label_y
 
 
     def build_encoder(self):
         input = Input(shape = (seq_length, feature_count))
-        model = Masking(mask_value=-1.0)
-        model = LSTM(units=ncell, return_sequences=True)(input)
+        model = Masking(mask_value=-1.0)(input)
+        model = LSTM(units=ncell, return_sequences=True)(model)
         for i in range(nlayer - 2):
             model = LSTM(units=ncell, return_sequences=True)(model)
         model = LSTM(units=ncell, return_sequences=False)(model)
@@ -202,10 +210,10 @@ class create_model():
 
     def build_discriminator(self):
         input = Input(shape = (dim_less, ))
-        model =Dense(units = ncell)(input)
+        model =Dense(units = ncell, activation='relu')(input)
         for i in range(nlayer - 1):
-            model = Dense(units = ncell)(model)
-        model = Dense(units=1, activation='relu')(model)
+            model = Dense(units = ncell, activation='relu')(model)
+        model = Dense(units=1, activation='sigmoid')(model)
         return Model(input, model)
 
 
@@ -214,20 +222,24 @@ class create_model():
 
         fake = np.zeros((sbatch, 1))
         real = np.ones((sbatch, 1))
+        target_vector = np.append(fake, real, axis=0)
         
         x_ = self.encoder.predict([self.y])
         for i in range(nbatch):
             z = create_input(sbatch)
+            input_vector = np.append(x_[idx[i*sbatch:(i+1)*sbatch]], z, axis=0)
             if gpus > 1:
-                d_loss_fake = self.para_dis.train_on_batch(x_[idx[i*sbatch:(i+1)*sbatch]], fake, sample_weight=None)
-                d_loss_real = self.para_dis.train_on_batch(z, real, sample_weight=None)
+                # d_loss_fake = self.para_dis.train_on_batch(x_[idx[i*sbatch:(i+1)*sbatch]], fake, sample_weight=None)
+                # d_loss_real = self.para_dis.train_on_batch(z, real, sample_weight=None)
+                d_loss = self.para_dis.train_on_batch(input_vector, target_vector, sample_weight=None)
             else:
-                d_loss_real = self.discriminator.train_on_batch(z, real, sample_weight=None)
-                d_loss_fake = self.discriminator.train_on_batch(x_[idx[i*sbatch:(i+1)*sbatch]], fake, sample_weight=None)
+                # d_loss_real = self.discriminator.train_on_batch(z, real, sample_weight=None)
+                # d_loss_fake = self.discriminator.train_on_batch(x_[idx[i*sbatch:(i+1)*sbatch]], fake, sample_weight=None)
+                d_loss = self.discriminator.train_on_batch(input_vector, target_vector, sample_weight=None)
             if flag == 'unroll' and flag_num == 0:
                 with open('{0}/dis_param_unroll.hdf5'.format(filepath), 'w') as f:
                     self.discriminator.save_weights(f.name)
-            d_loss = 0.5*(d_loss_fake + d_loss_real)
+            # d_loss = 0.5*(d_loss_fake + d_loss_real)
         
         return d_loss
 
@@ -271,15 +283,17 @@ class create_model():
             f = json.dump(model_json, f)
 
     def passage_save(self, epoch):
-        C = ['red'] * int(nTrain/2) + ['blue'] * int(nTrain/2)
-        C = np.asarray(C)
+        C = np.array(['red', 'blue', 'green', 'yellow', 'orange', 'purple', 'magenta', 'lime', 'cyan', 'navy'])
+        # C = ['red'] * int(nTrain/2) + ['blue'] * int(nTrain/2)
+        # C = np.asarray(C)
+        j = np.random.randint(0, self.y.shape[0], 12)
         z = create_input(12)
         encode_y = self.encoder.predict(self.y)
         decode_y = self.decoder.predict(encode_y)
         decode_z = self.decoder.predict(z)
-        plt.scatter(encode_y[:,0], encode_y[:,1], c=C, marker='o', alpha = 0.4)
-        plt.ylim([-3*std_normal, 3*std_normal])
-        plt.xlim([-3*std_normal, 3*std_normal])
+        plt.scatter(encode_y[:,0], encode_y[:,1], c=C[self.t], marker='o', alpha = 0.4)
+        plt.ylim([-5*std_normal, 5*std_normal])
+        plt.xlim([-5*std_normal, 5*std_normal])
         plt.savefig('{0}/encode/encode_epoch{1}.png'.format(filepath, epoch))
         plt.close()
         plt.figure(figsize=(16, 9))
@@ -287,32 +301,34 @@ class create_model():
         if plot_dim == 1:
             for i in range(12):
                 plt.subplot(3,4,i+1)
-                plt.plot(self.y[i, :, 0].T, color='blue', marker='.')
-                plt.plot(decode_y[i, :, 0].T, color='blue', marker='.')
-                plt.ylim([0,1])
+                plt.plot(self.y[j[i], :, 0].T, color='red', marker='.')
+                plt.plot(decode_y[j[i], :, 0].T, color='blue', marker='.')
+                # plt.ylim([0,1])
         else:
             for i in range(12):
                 plt.subplot(3,4,i+1)
-                ind = np.where(self.y[i, :, 0] == -1)
-                plot_y = self.y[i, :, 0]
-                plot_y[ind] = None
-                plt.plot(self.y[i, :, 0].T, self.y[i, :, 1].T, color='red', marker='.')
-                plt.plot(decode_y[i, :, 0].T, decode_y[i, :, 1].T, color='blue', marker='.')
+                ind = np.where(self.y[j[i], :, :] == -1)
+                plot_y = np.copy(self.y[j[i], :, :])
+                plot_y[ind, :] = None
+                # plt.plot(self.y[i, :, 0].T, self.y[i, :, 1].T, color='red', marker='.')
+                plt.plot(plot_y[...,0].T, plot_y[...,1].T, color='red', marker='.')
+                plt.plot(decode_y[j[i], :, 0].T, decode_y[j[i], :, 1].T, color='blue', marker='.')
                 plt.axis('square')
                 plt.xlim([0,1])
                 plt.ylim([0,1])
+                plt.title('label:{}'.format(self.t[j[i]]))
         plt.savefig('{0}/decode/decode_epoch{1}.png'.format(filepath, epoch))
         plt.close()
         plt.figure(figsize=(16, 9))
         if plot_dim == 1:
             for i in range(12):
                 plt.subplot(3,4,i+1)
-                plt.plot(decode_y[i, :, 0].T, color='blue', marker='.')
-                plt.ylim([0,1])
+                plt.plot(decode_y[j[i], :, 0].T, color='blue', marker='.')
+                # plt.ylim([0,1])
         else:
             for i in range(12):
                 plt.subplot(3,4,i+1)
-                plt.plot(decode_y[i, :, 0].T, decode_y[i, :, 1].T, color='blue', marker='.')
+                plt.plot(decode_y[j[i], :, 0].T, decode_y[j[i], :, 1].T, color='blue', marker='.')
                 plt.axis('square')
                 plt.xlim([0,1])
                 plt.ylim([0,1])
@@ -339,10 +355,11 @@ def main():
     with open('{0}/condition.csv'.format(filepath), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         # writer.writerow(['nTrain:{0}'.format(nTrain)])
-        writer.writerow(['optmizer:{0}'.format(opt)])
-        writer.writerow(['cell:{0}'.format(ncell)])
-        writer.writerow(['layer:{0}'.format(nlayer)])
-        writer.writerow(['batch:{0}'.format(nbatch)])
+        writer.writerow(['dataset: {}'.format(datadir)])
+        writer.writerow(['optmizer: {}'.format(opt)])
+        writer.writerow(['cell: {}'.format(ncell)])
+        writer.writerow(['layer: {}'.format(nlayer)])
+        writer.writerow(['batch: {}'.format(nbatch)])
 
     start = time.time()
     print('\n----setup----\n')
@@ -358,21 +375,18 @@ def main():
                 loss_d, loss_g = model.unrolled_train()
             else:
                 loss_d, loss_g = model.normal_train()
-
             if (i + 1) % 1 == 0:
                 print('epoch:{0}'.format(i+1))
-                x_ = model.encoder.predict([model.y])
+                # x_ = model.encoder.predict([model.y])
                 # reconst_y, classifier_y, disc_y = model.aae.predict([model.y])
-                reconst_y, disc_y = model.aae.predict([model.y])
+                # reconst_y, disc_y = model.aae.predict([model.y])
                 summary = tf.Summary(value=[
                                      tf.Summary.Value(tag='loss_d',
                                                       simple_value=loss_d),
                                      tf.Summary.Value(tag='loss_g',
-                                                      simple_value=loss_g[2]),
-                                     tf.Summary.Value(tag='disc_y',
-                                                      simple_value=disc_y[0]), ])
+                                                      simple_value=loss_g[2]),])
                 writer.add_summary(summary, i+1)
-            if (i + 1) % 10 == 0:
+            if (i + 1) % 1 == 0:
                 model.passage_save(i+1)
             # loss_ratio = 1.0
             # loss_ratio = ((loss_d[0]+loss_d[1])/2)/loss_gan
