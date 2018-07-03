@@ -18,7 +18,7 @@ parser.add_argument('--iter', type=int, default=0, help='select dataset')
 parser.add_argument('--seed', type=int, default=1, help='select seed')
 
 parser.add_argument('--layer', type=int, default=2, help='number of layers')
-parser.add_argument('--epoch', type=int, default=10000,help='number of epoch')
+parser.add_argument('--epoch', type=int, default=1000,help='number of epoch')
 parser.add_argument('--cell', type=int, default =100, help='number of cell')
 parser.add_argument('--opt', type=str, default='adam', help='optimizer')
 parser.add_argument('--numbatch', type=int, default=10, help='number of Batch')
@@ -76,7 +76,6 @@ filedir = os.path.abspath(os.path.dirname(__file__))
 filepath = '{0}/{1}'.format(filedir, dirs, datadir, iter)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
-    os.makedirs('{0}/figure'.format(filepath))
 
 
 class LSTM_classifier():
@@ -95,11 +94,11 @@ class LSTM_classifier():
         with open('{0}/param_init.hdf5'.format(self.initpath), 'w') as f:
             self.model.save_weights(f.name)
 
-        with open('{0}/condition.csv'.format(model.initpath), 'w') as f:
+        with open('{0}/condition.csv'.format(self.initpath), 'w') as f:
             writer = csv.writer(f, lineterminator='\n')
             writer.writerow(['num train:{0}'.format(self.train_x.shape[0])])
             writer.writerow(['num test:{0}'.format(self.test_x.shape[0])])
-            writer.writerow(['cell:{0}'.format(cell)])
+            writer.writerow(['cell:{0}'.format(num_cell)])
             writer.writerow(['epoch:{0}'.format(epoch)])
             writer.writerow(['optmizer:{0}'.format(OPT)])
 
@@ -138,13 +137,13 @@ class LSTM_classifier():
         if os.path.exists(self.filepath) is False:
             os.makedirs(self.filepath)
 
-        train_x, train_t = data_augmentation(times, aug_flag)
+        train_x, train_t = self.data_augmentation(times, aug_flag)
         test_label = np.array([self.label2seq(j) for j in self.test_t])
         # size_batch = int(train_x.shape[0]/num_batch)
         size_batch = batchsize * gpus
         if size_batch > train_x.shape[0]:
             size_batch = train_x.shape[0]
-        num_batch = int(np.ceil(train_x.shape[0] / size_size))
+        num_batch = int(np.ceil(train_x.shape[0] / size_batch))
         
         self.model_init()
         self.model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -163,10 +162,10 @@ class LSTM_classifier():
                 if j == 0:
                     idx = np.random.choice(train_x.shape[0], train_x.shape[0], replace=False)
                 if gpus > 1:
-                    r_label = np.array([self.label2seq(j) for j in train_t[idx[i*size_batch:(i+1)*size_batch]]])
+                    r_label = np.array([self.label2seq(j) for j in train_t[idx[j*size_batch:(j+1)*size_batch]]])
                     train_loss = self.para_model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [r_label])
                 else:
-                    r_label = np.array([self.label2seq(j) for j in train_t[idx[i*size_batch:(i+1)*size_batch]]])
+                    r_label = np.array([self.label2seq(j) for j in train_t[idx[j*size_batch:(j+1)*size_batch]]])
                     train_loss = self.model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [r_label])
 
                 if j == num_batch-1:
@@ -219,11 +218,12 @@ class LSTM_classifier():
         return train_acc, test_acc
 
 
-    def load_data(self, flag):
+    def load_data(self):
         self.train_x = np.load('{0}/dataset/{1}/train{2}.npy'.format(filedir, datadir, iter))
         self.train_t = self.train_x[:, -1]
         self.num_class = len(np.unique(self.train_t))
         self.train_x = self.train_x[:, :-1]
+        self.seq_length = self.train_x.shape[1]
         self.train_x = self.train_x[..., None]
 
         self.test_x = np.load('{0}/dataset/{1}/test{2}.npy'.format(filedir, datadir, iter))
@@ -231,26 +231,32 @@ class LSTM_classifier():
         self.test_x = self.test_x[:, :-1]
         self.test_x = self.test_x[..., None]
 
-        print('--------Train data shape', train_x.shape)
-        print('--------Test data shape', test_x.shape)
+        for ind, label in enumerate(np.unique(self.train_t)):
+            self.train_t[self.train_t == label]  = ind
+            self.test_t[self.test_t == label]  = ind
+
+        print('--------Train data shape', self.train_x.shape)
+        print('--------Test data shape', self.test_x.shape)
 
 
     def data_augmentation(self, times, flag):
         train_x = np.copy(self.train_x)
         train_t = np.copy(self.train_t)
         for label in np.unique(self.train_t):
-            buff = np.load('{0}/dataset/{1}/{2}_iter{3}_class{4}.npy'.format(filedir, datadir, flag, label))
+            buff = np.load('{0}/dataset/{1}/{2}_iter{3}_class{4}.npy'.format(filedir, datadir, flag, iter, int(label)))
             num_train = len(self.train_t == label)
             buff = buff[:int(times*num_train)]
             train_x = np.append(train_x, buff[:, :, None], axis=0)
-            buff_t = np.ones((buff, 1))*label
+            buff_t = np.ones((buff.shape[0]))*label
+            print(buff_t.shape)
+            print(train_t.shape)
             train_t = np.append(train_t, buff_t, axis=0)
 
         return train_x, train_t
         
 
     def label2seq(self, label):
-        onehot = np.zeros((seq_length, class_num))
+        onehot = np.zeros((self.num_class))
         onehot[..., int(label)] = 1
 
         return onehot
@@ -261,7 +267,7 @@ def lstm_classification():
     Acc_train = []
     Acc_test = []
 
-    for i, j in itertools.product(range(0, max_times+1, delta_times), flag_list):
+    for i, j in itertools.product(np.arange(0, max_times+1, delta_times), flag_list):
         if j == flag_list[0]:
             buff_train = []
             buff_test = []
@@ -293,46 +299,48 @@ def lstm_classification():
 
 def classifier_nearest_neighbor(times, aug, dis):    
     train_x = np.load('{0}/dataset/{1}/train{2}.npy'.format(filedir, datadir, iter))
-    num_da = int(train_x.shape[0] * times)
     class_num = len(np.unique(train_x[:, -1]))
     for ind, label in enumerate(np.unique(train_x[:, -1])):
-            train_x[train_x[:, -1] == label, -1]  = ind
-            print('class{0} : '.format(ind), np.sum(train_x[:, -1] == ind))
+        train_x[train_x[:, -1] == label, -1]  = ind
+        print('class{0} : '.format(ind), np.sum(train_x[:, -1] == ind))
     for i in np.unique(train_x[:, -1]):
         buff = np.load('{0}/dataset/{1}/{2}_iter{3}_class{4}.npy'.format(filedir, datadir, aug, iter, int(i)))
-        buff = np.append(buff, np.ones((buff.shape[0],1))*i, axis=1)
+        num_da = int(np.sum(train_x[:, -1] == i) * times)
+        buff = np.append(buff, np.ones((buff.shape[0], 1))*i, axis=1)
         train_x = np.append(train_x, buff[:num_da], axis=0)
     
     test_x = np.load('{0}/dataset/{1}/test{2}.npy'.format(filedir, datadir, iter))
+
     train_t = train_x[:, -1]
     test_t = test_x[:, -1]
+    train_x = train_x[:, :-1]
+    test_x = test_x[:, :-1]
+    for ind, label in enumerate(np.unique(test_t)):
+        test_t[test_t == label]  = ind
 
-    if dis == 'dtw':
-        loss, m, s = dtw(test_x, train_x)
-    elif dis == 'mse':
-        loss, m, s = mse(test_x, train_x)
-    else:
-        print('selected dtw or mse')
-        return
+    print(train_x.shape)
+    print(test_x.shape)
+    
+    if dis == 'dtw': loss, m, s = dtw(test_x, train_x)
+    elif dis == 'mse': loss, m, s = mse(test_x, train_x)
+    else: print('selected dtw or mse')
     
     loss = loss.reshape(test_x.shape[0], -1)
     min_ind = np.argmin(loss, axis=1)
-    
-    for idt, inx in enumerate(min_ind):
-        acc = 0
-        if test_t[idt] == train_t[inx]:
-            acc += 1
+    acc = 0
+    for idt, idx in enumerate(min_ind):
+        if test_t[idt] == train_t[idx]: acc += 1
 
     return acc / test_x.shape[0]
 
 
 def NN_classification(dis):
-    filepath = '{0}/{1}/'.format(filedir, dir, )
-    if os.path.exists(filepath) is False:
-        os.makedirs(filepath)
+    initpath = '{0}/nearest_neighbor'.format(filepath)
+    if os.path.exists(initpath) is False:
+        os.makedirs(initpath)
 
     acc_list = []
-    for i, j in itertools.product(np.arange(0, max_times, delta_times), flag_list):
+    for i, j in itertools.product(np.arange(0, max_times+delta_times, delta_times), flag_list):
         if j == flag_list[0]:
             buff = []
         print('num of DA: {0}'.format(i))
@@ -343,8 +351,8 @@ def NN_classification(dis):
             acc_list.append(buff)
     
     acc_array = np.array(acc_list)
-    label = ['num of DA: {0}'.format(i) for i in range(0, max_times+1, delta_times)]
-    with open('{0}/nn_classification_acc_{1}.csv'.format(filepath, dis),'w') as f:
+    label = ['num of DA: {0}'.format(i) for i in np.arange(0, max_times+1, delta_times)]
+    with open('{0}/nn_classification_acc_{1}.csv'.format(initpath, dis), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(label)
         for i, j in enumerate(flag_list):
@@ -357,6 +365,7 @@ def main():
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(['dataset: {}'.format(datadir)])
         writer.writerow(['optmizer: {}'.format(OPT)])
+        writer.writerow(['epoch: {}'.format(epoch)])
         writer.writerow(['cell: {}'.format(num_cell)])
         writer.writerow(['layer: {}'.format(nlayer)])
         writer.writerow(['batchsize: {}'.format(batchsize)])
@@ -364,10 +373,9 @@ def main():
         writer.writerow(['max times: {}'.format(max_times)])
         writer.writerow(['delta times: {}'.format(delta_times)])
 
-    NN_classification('mse')
-    lstm_classification()
-    # classifier_NN('dtw')
-    write_slack('classifier', 'finish')
+    NN_classification('dtw')
+    # lstm_classification()
+    # write_slack('classifier', 'finish')
 
-if __name__=='__main__':
+if __name__ == '__main__':
     main()
