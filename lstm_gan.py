@@ -98,7 +98,8 @@ def mean(y_true, y_pred):
 
 
 class create_model():
-    def __init__(self):
+    def __init__(self, writer):
+        self.writer = writer
         self.y, self.t = self.load_data()
         self.y = self.y[..., None]
         global class_num
@@ -217,6 +218,10 @@ class create_model():
             target_z = np.zeros((z.shape[0], 1, 1))
             target_y = np.ones_like(target_z)
             dis_target = np.append(target_y, target_z, axis=0)
+            conb_x_t = np.append(X, dis_target, axis=0)
+            np.random.shuffle(conb_x_t)
+            X = conb_x_t[..., :-dis_target.shape[1]]
+            dis_target = conb_x_t[..., -dis_target.shape[1]:]
             
             if gpus > 1:
                 loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
@@ -233,6 +238,12 @@ class create_model():
             z = create_random_input(batch_size)
             randomlabel = np.random.randint(0, class_num, batch_size)
             class_info = np.array([self.label2seq(j) for j in randomlabel])
+            comb_all = np.append(z, class_info, axis=0)
+            comb_all = np.append(comb_all, randomlabel, axis=0)
+            np.random.shuffle(comb_all)
+            z = comb_all(:, :z.shape[1])
+            class_info = comb_all(:, z.shape[1]:z.shape[1]+class_info.shape[1])
+            randomlabel = comb_all(:, -randomlabel.shape[1]:cd )
             if gpus > 1:
                 loss = self.para_gan.train_on_batch([z, class_info, class_info], [self.gan_target], sample_weight=None)    
             else:
@@ -240,7 +251,7 @@ class create_model():
         return loss    
 
 
-    def train(self, epoch, writer):
+    def train(self, epoch):
         # self.gan_target = np.ones((batch_size, 1, 1))
         # self.gan_target = np.ones((atch_size, 1, 1))
 
@@ -257,15 +268,15 @@ class create_model():
                                                     simple_value=loss_d),
                                     tf.Summary.Value(tag='loss_gan',
                                                     simple_value=loss_g), ])
-            writer.add_summary(summary, i+1)
-            with open('{0}/gene_param.hdf5'.format(filepath), 'w') as f:
-                self.gene.save_weights(f.name)    
-            with open('{0}/dis_param.hdf5'.format(filepath), 'w') as f:
-                self.dis.save_weights(f.name)    
-            with open('{0}/gan_param.hdf5'.format(filepath), 'w') as f:
-                self.gan.save_weights(f.name)
-
+            self.writer.add_summary(summary, i+1)
             if (i + 1) % 100 == 0: self.output_plot(i+1)
+
+        with open('{0}/gene_param.hdf5'.format(filepath), 'w') as f:
+            self.gene.save_weights(f.name)    
+        with open('{0}/dis_param.hdf5'.format(filepath), 'w') as f:
+            self.dis.save_weights(f.name)    
+        with open('{0}/gan_param.hdf5'.format(filepath), 'w') as f:
+            self.gan.save_weights(f.name)
 
 
     def normal_train(self):
@@ -398,7 +409,7 @@ class create_model():
                     X = np.copy(x_[:,:,0])
                 else:
                     X = np.append(X, x_[:,:,0],axis=0)
-            np.save('{0}/dataset/{1}/gan_iter{2}_class{3}.npy'.format(filedir, datadir, iter, label), X)
+            np.save('{0}/dataset/{1}/gan_iter{2}_class{3}.npy'.format(filedir, datadir, int(iter), int(label)), X)
 
 
     def label2seq(self, label):
@@ -423,15 +434,15 @@ def main():
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
 
-        model = create_model()
+        model = create_model(writer)
         print('\n----train step----\n')
-        model.train(epoch, writer)
+        model.train(epoch)
         model.make_data()
         
     K.clear_session()
     dt = time.time() - start
     print('finished time : {0}[sec]'.format(dt))
-    write_slack('lstm-gan', 'program finish iter: {}'.format(iter))
+    write_slack('{0}', 'program finish dataset: {1}, iter: {2}'.format(__file__,datasetdir, iter))
 
 
 if __name__ == '__main__':
