@@ -94,10 +94,8 @@ def main():
             np.random.shuffle(DST_inter)
             np.random.shuffle(DST_extra)
 
-            DST_inter = np.append(DST_inter, np.ones((DST_inter.shape[0], 1))*label, axis=1)
-            DST_extra = np.append(DST_extra, np.ones((DST_extra.shape[0], 1))*label, axis=1)
-            print(DST_inter.shape)
-            print(DST_extra.shape)
+            # DST_inter = np.append(DST_inter, np.ones((DST_inter.shape[0], 1))*label, axis=1)
+            # DST_extra = np.append(DST_extra, np.ones((DST_extra.shape[0], 1))*label, axis=1)
             np.save('{0}/{1}/inter_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, label), DST_inter)
             np.save('{0}/{1}/extra_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, int(label)), DST_extra)
             

@@ -242,8 +242,9 @@ class LSTM_classifier():
             buff = np.load('{0}/dataset/{1}/{2}_iter{3}_class{4}.npy'.format(filedir, datadir, flag, label))
             num_train = len(self.train_t == label)
             buff = buff[:int(times*num_train)]
-            train_x = np.append(train_x, buff[:, :-1, None], axis=0)
-            train_t = np.append(train_t, buff[:, -1], axis=0)
+            train_x = np.append(train_x, buff[:, :, None], axis=0)
+            buff_t = np.ones((buff, 1))*label
+            train_t = np.append(train_t, buff_t, axis=0)
 
         return train_x, train_t
         
