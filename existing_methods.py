@@ -96,9 +96,8 @@ def main():
 
             # DST_inter = np.append(DST_inter, np.ones((DST_inter.shape[0], 1))*label, axis=1)
             # DST_extra = np.append(DST_extra, np.ones((DST_extra.shape[0], 1))*label, axis=1)
-            np.save('{0}/{1}/inter_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, label), DST_inter)
+            np.save('{0}/{1}/inter_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, int(label)), DST_inter)
             np.save('{0}/{1}/extra_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, int(label)), DST_extra)
-            
             plt.plot(dst[0])
             plt.plot(DST_inter[0])
             plt.savefig('{0}/sample-inter{1}.png'.format(filepath, datadir))
