@@ -72,6 +72,7 @@ K.set_session(session)
 
 if args.opt == 'sgd':
     # OPT = keras.optimizers.SGD(lr=0.1, momentum=0.2, decay=0.0, nesterov=False)
+    # OPT = keras.optimizers.SGD(lr=0.01)
     OPT = keras.optimizers.SGD()
 elif args.opt == 'adam':
     OPT = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,epsilon=1e-08, decay=0.0)
@@ -124,8 +125,8 @@ class LSTM_classifier():
         x = LSTM(units=num_cell, return_sequences=True, dropout=0.0, recurrent_dropout=0.0)(input)
         # x = LSTM(units=num_cell, return_sequences=True, dropout=0.0, recurrent_dropout=0.0)(x)
         x = LSTM(units=num_cell, return_sequences=False, dropout=0.0, recurrent_dropout=0.0)(x)
-        x = Dense(units=self.num_class, activation='sigmoid')(x)
-        x = Activation(activation='softmax')(x)
+        x = Dense(units=self.num_class, activation='softmax')(x)
+        # x = Activation(activation='softmax')(x)
         # x = pooling.AveragePooling1D(pool_size=seq_length, strides=None)(x)
         # x = Reshape((class_count, ))(x)
         return Model(input, x)
@@ -158,6 +159,9 @@ class LSTM_classifier():
         if size_batch > train_x.shape[0]:
             size_batch = train_x.shape[0]
         num_batch = int(np.ceil(train_x.shape[0] / size_batch))
+        # self.val_size = int(self.test_t.shape[0] * 0.25)
+        self.val_size = 0
+        # self.val_size = self.test_x.shape[0]
         
         self.model_init()
         self.model.compile(optimizer=OPT, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -172,28 +176,32 @@ class LSTM_classifier():
             writer = tf.summary.FileWriter('{0}'.format(self.filepath), sess.graph)
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())
-            # val_size = int(self.test_t.shape[0] * 0.2)
-            # fpath = 'param.{epoch:02d}.hdf5'
-            # cp = callbacks.ModelCheckpoint(filepath='{0}/{1}'.format(self.filepath, fpath), monitor='val_loss', mode='min', save_best_only=True)
-            # es = callbacks.EarlyStopping(monitor='val_loss', patience=10, model='min')
-            # tb = callbacks.Tensorboard(log_dir='{0}'.format(self.filepath))
-            # label_list = np.array([self.label2seq(j) for j in train_t])
-            # Hist = model.fit(x=train_x, y=label_list, battch_size=size_batch, epochs=epoch, validation_data=(self.test_x[:val_size], test_label[:val_size]), callbacks=[cp, tb, es])
+            # fpath = 'param_best.hdf5'
+            # cp = callbacks.ModelCheckpoint(filepath='{0}/{1}'.format(self.filepath, fpath), monitor='loss', mode='min', save_best_only=True)
+            # es = callbacks.EarlyStopping(monitor='loss', patience=100, mode='min')
+            # tb = callbacks.TensorBoard(log_dir='{0}'.format(self.filepath))
+
+            # Hist = self.model.fit(x=train_x, y=train_label, batch_size=size_batch, epochs=epoch, callbacks=[cp, tb, es])
+            # Hist = self.model.fit(x=train_x, y=train_label, batch_size=size_batch, epochs=epoch, validation_data=(self.test_x[:self.val_size], test_label[:self.val_size]), callbacks=[cp, tb, es])
+            best_result = np.inf
             for i, j in itertools.product(range(epoch), range(num_batch)):
                 if j == 0:
                     idx = np.random.choice(train_x.shape[0], train_x.shape[0], replace=False)
                 if gpus > 1:
-                    r_label = np.array([self.label2seq(j) for j in train_t[idx[j*size_batch:(j+1)*size_batch]]])
                     train_loss = self.para_model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [train_label[idx[j*size_batch:(j+1)*size_batch]]])
                 else:
-                    train_loss = self.model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [train_label[idx[j*size_batch:(j+1)*size_batch]]])
+                    train_loss = self.model.train_on_batch(x=[train_x[idx[j*size_batch:(j+1)*size_batch]]], y=[train_label[idx[j*size_batch:(j+1)*size_batch]]])
 
                 if j == num_batch-1:
                     sys.stdout.write('\repoch: {0}'.format(i+1))
                     sys.stdout.flush()
                     time.sleep(0.01)
+
+                    if best_result > train_loss[0]:
+                        best_result = train_loss[0]
+                        self.model.save_weights('{0}/param_best.hdf5'.format(self.filepath))
                     
-                    test_loss = self.model.test_on_batch([self.test_x], [test_label])
+                    test_loss = self.model.test_on_batch(x=[self.test_x], y=[test_label])
                     summary =  tf.Summary(value=[
                                         tf.Summary.Value(tag='train_loss',
                                                         simple_value=train_loss[0]),
@@ -212,7 +220,8 @@ class LSTM_classifier():
         self.filepath = '{0}/{1}/times{2}'.format(self.initpath, aug_flag, times)
         
         try:
-            f = open('{0}/param_times{1}.hdf5'.format(self.filepath, times))
+            # f = open('{0}/param_times{1}.hdf5'.format(self.filepath, times))
+            f = open('{0}/param_best.hdf5'.format(self.filepath, times))
         except:
             print('--------Not open {0}--------'.format('{0}/param.hdf5'.format(self.filepath)))
         else:
@@ -222,7 +231,8 @@ class LSTM_classifier():
             train_label = np.array([self.label2seq(j) for j in self.train_t])
             test_label = np.array([self.label2seq(j) for j in self.test_t])
             train_loss = self.model.test_on_batch([self.train_x], [train_label])
-            test_loss = self.model.test_on_batch([self.test_x], [test_label])
+            # test_loss = self.model.test_on_batch([self.test_x], [test_label])
+            test_loss = self.model.test_on_batch([self.test_x[self.val_size:]], [test_label[self.val_size:]])
             train_acc = train_loss[1]
             test_acc = test_loss[1]
             
@@ -239,13 +249,16 @@ class LSTM_classifier():
 
     def load_data(self):
         self.train_x = np.load('{0}/dataset/{1}/train{2}.npy'.format(filedir, datadir, iter))
+        # np.random.shuffle(self.train_x)
+        self.test_x = np.load('{0}/dataset/{1}/test{2}.npy'.format(filedir, datadir, iter))
+        # np.random.shuffle(self.test_x)
+
         self.train_t = self.train_x[:, -1]
         self.num_class = len(np.unique(self.train_t))
         self.train_x = self.train_x[:, :-1]
         self.seq_length = self.train_x.shape[1]
         self.train_x = self.train_x[..., None]
 
-        self.test_x = np.load('{0}/dataset/{1}/test{2}.npy'.format(filedir, datadir, iter))
         self.test_t = self.test_x[:, -1]
         self.test_x = self.test_x[:, :-1]
         self.test_x = self.test_x[..., None]
@@ -316,7 +329,7 @@ def lstm_classification():
             writer.writerow(Acc_test[:, i])
 
 
-def classifier_nearest_neighbor(times, aug, dis, k=1):    
+def classifier_nearest_neighbor(times, aug, dis, k=1, band_flag=False, num_band=0):    
     train_x = np.load('{0}/dataset/{1}/train{2}.npy'.format(filedir, datadir, iter))
     class_num = len(np.unique(train_x[:, -1]))
     for ind, label in enumerate(np.unique(train_x[:, -1])):
@@ -337,21 +350,17 @@ def classifier_nearest_neighbor(times, aug, dis, k=1):
     for ind, label in enumerate(np.unique(test_t)):
         test_t[test_t == label]  = ind
 
-    if dis == 'dtw': loss, m, s = dtw(test_x, train_x)
+    if dis == 'dtw': loss, m, s = dtw(test_x, train_x, band_flag=band_flag, num_band=num_band)
     elif dis == 'mse': loss, m, s = mse(test_x, train_x)
     else: print('selected dtw or mse')
 
     loss = loss.reshape(test_x.shape[0], -1)
     loss_sort = np.argsort(loss, axis=1)
     min_ind = loss_sort[:, :k]
-    min_ind = np.argmin(loss, axis=1)
+    # min_ind = np.argmin(loss, axis=1)
     acc = 0
     for idt, idx in enumerate(min_ind):
-        buff = 0
-        for iidx in idx:
-            if test_t[idt] == train_t[idx]: buff += 1
-        if buff > np.ceil(k/2): acc += 1
-
+        if np.sum(train_t[idx] == test_t[idt]) >= np.ceil(k/2): acc += 1
     return acc / test_x.shape[0]
 
 
@@ -366,7 +375,7 @@ def NN_classification(dis, k=1):
             buff = []
         print('num of DA: {0}'.format(i))
         print('method: {0}'.format(j))
-        acc = classifier_nearest_neighbor(times=i, aug=j, dis=dis, k=k)
+        acc = classifier_nearest_neighbor(times=i, aug=j, dis=dis, k=k, band_flag=True, num_band=5)
         buff.append(acc)
         if j == flag_list[-1]:
             acc_list.append(buff)
@@ -382,8 +391,10 @@ def NN_classification(dis, k=1):
 
 
 def main():
-    K = 1
-    # NN_classification('dtw', k=K)
+    K = 5
+    # for i in range(1, K+2, 2):
+    #     NN_classification('dtw', k=i)
+    #     # NN_classification('mse', k=i)
     lstm_classification()
     write_slack('classifier', 'finish')
 
