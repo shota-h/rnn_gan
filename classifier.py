@@ -23,6 +23,8 @@ parser.add_argument('--cell', type=int, default =100, help='number of cell')
 parser.add_argument('--opt', type=str, default='adam', help='optimizer')
 parser.add_argument('--numbatch', type=int, default=10, help='number of Batch')
 parser.add_argument('--batchsize', type=int, default=32, help='number of Batch')
+parser.add_argument('--max_time', type=int, default=10, help='max times')
+parser.add_argument('--dtime', type=int, default=1, help='delta times')
 parser.add_argument('--gpus', type=int, default=1, help='number gpus')
 parser.add_argument('--gpuid', type=str, default='0', help='gpu id')
 
@@ -40,8 +42,8 @@ gpus = args.gpus
 SEED = args.seed
 iter = args.iter
 
-max_times = 10
-delta_times = 0.5
+max_times = args.max_time
+delta_times = args.dtime
 flag_list = ['gan', 'noise', 'inter', 'extra', 'hmm']
 
 # set seed
@@ -62,15 +64,23 @@ from keras.regularizers import l2
 from keras.utils import multi_gpu_model
 import keras.optimizers
 import keras.initializers as keras_init
+import keras.callbacks as callbacks
 from keras import backend as K
 
 session = tf.Session(config=config)
 K.set_session(session)
 
 if args.opt == 'sgd':
-    OPT = keras.optimizers.SGD(lr=0.1, momentum=0.2, decay=0.0, nesterov=False)
+    # OPT = keras.optimizers.SGD(lr=0.1, momentum=0.2, decay=0.0, nesterov=False)
+    OPT = keras.optimizers.SGD()
 elif args.opt == 'adam':
     OPT = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999,epsilon=1e-08, decay=0.0)
+elif args.opt == 'rms':
+    OPT = keras.optimizers.RMSprop()
+elif args.opt == 'adadelta':
+    OPT = keras.optimizers.Adadelta()
+elif args.opt == 'adagrad':
+    OPT = keras.optimizers.Adagrad()
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 filepath = '{0}/{1}'.format(filedir, dirs, datadir, iter)
@@ -99,17 +109,20 @@ class LSTM_classifier():
             writer.writerow(['num train:{0}'.format(self.train_x.shape[0])])
             writer.writerow(['num test:{0}'.format(self.test_x.shape[0])])
             writer.writerow(['cell:{0}'.format(num_cell)])
+            writer.writerow(['layer: {}'.format(nlayer)])
             writer.writerow(['epoch:{0}'.format(epoch)])
             writer.writerow(['optmizer:{0}'.format(OPT)])
 
-            writer.writerow(['max times:{0}'.format(max_times)])
-            writer.writerow(['delta times:{0}'.format(delta_times)])
+            writer.writerow(['batchsize: {}'.format(batchsize)])
+            writer.writerow(['gpus: {}'.format(gpus)])
+            writer.writerow(['max times: {}'.format(max_times)])
+            writer.writerow(['delta times: {}'.format(delta_times)])
 
 
     def build(self):
         input = Input(shape=(self.train_x.shape[1], self.train_x.shape[2]))
         x = LSTM(units=num_cell, return_sequences=True, dropout=0.0, recurrent_dropout=0.0)(input)
-        x = LSTM(units=num_cell, return_sequences=True, dropout=0.0, recurrent_dropout=0.0)(x)
+        # x = LSTM(units=num_cell, return_sequences=True, dropout=0.0, recurrent_dropout=0.0)(x)
         x = LSTM(units=num_cell, return_sequences=False, dropout=0.0, recurrent_dropout=0.0)(x)
         x = Dense(units=self.num_class, activation='sigmoid')(x)
         x = Activation(activation='softmax')(x)
@@ -139,6 +152,7 @@ class LSTM_classifier():
 
         train_x, train_t = self.data_augmentation(times, aug_flag)
         test_label = np.array([self.label2seq(j) for j in self.test_t])
+        train_label = np.array([self.label2seq(j) for j in train_t])
         # size_batch = int(train_x.shape[0]/num_batch)
         size_batch = batchsize * gpus
         if size_batch > train_x.shape[0]:
@@ -158,15 +172,21 @@ class LSTM_classifier():
             writer = tf.summary.FileWriter('{0}'.format(self.filepath), sess.graph)
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())
+            # val_size = int(self.test_t.shape[0] * 0.2)
+            # fpath = 'param.{epoch:02d}.hdf5'
+            # cp = callbacks.ModelCheckpoint(filepath='{0}/{1}'.format(self.filepath, fpath), monitor='val_loss', mode='min', save_best_only=True)
+            # es = callbacks.EarlyStopping(monitor='val_loss', patience=10, model='min')
+            # tb = callbacks.Tensorboard(log_dir='{0}'.format(self.filepath))
+            # label_list = np.array([self.label2seq(j) for j in train_t])
+            # Hist = model.fit(x=train_x, y=label_list, battch_size=size_batch, epochs=epoch, validation_data=(self.test_x[:val_size], test_label[:val_size]), callbacks=[cp, tb, es])
             for i, j in itertools.product(range(epoch), range(num_batch)):
                 if j == 0:
                     idx = np.random.choice(train_x.shape[0], train_x.shape[0], replace=False)
                 if gpus > 1:
                     r_label = np.array([self.label2seq(j) for j in train_t[idx[j*size_batch:(j+1)*size_batch]]])
-                    train_loss = self.para_model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [r_label])
+                    train_loss = self.para_model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [train_label[idx[j*size_batch:(j+1)*size_batch]]])
                 else:
-                    r_label = np.array([self.label2seq(j) for j in train_t[idx[j*size_batch:(j+1)*size_batch]]])
-                    train_loss = self.model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [r_label])
+                    train_loss = self.model.train_on_batch([train_x[idx[j*size_batch:(j+1)*size_batch]]], [train_label[idx[j*size_batch:(j+1)*size_batch]]])
 
                 if j == num_batch-1:
                     sys.stdout.write('\repoch: {0}'.format(i+1))
@@ -192,7 +212,7 @@ class LSTM_classifier():
         self.filepath = '{0}/{1}/times{2}'.format(self.initpath, aug_flag, times)
         
         try:
-            f = open('{0}/param.hdf5'.format(self.filepath))
+            f = open('{0}/param_times{1}.hdf5'.format(self.filepath, times))
         except:
             print('--------Not open {0}--------'.format('{0}/param.hdf5'.format(self.filepath)))
         else:
@@ -201,16 +221,15 @@ class LSTM_classifier():
 
             train_label = np.array([self.label2seq(j) for j in self.train_t])
             test_label = np.array([self.label2seq(j) for j in self.test_t])
-            train_loss = self.model.test_on_batch([self.train_x], [self.test_label])
-            test_loss = self.model.test_on_batch([self.test_x], [self.test_label])
+            train_loss = self.model.test_on_batch([self.train_x], [train_label])
+            test_loss = self.model.test_on_batch([self.test_x], [test_label])
             train_acc = train_loss[1]
             test_acc = test_loss[1]
             
-
             with open('{0}/accuracy.csv'.format(self.filepath), 'w') as f1:
                 writer = csv.writer(f1, lineterminator='\n')
-                writer.writerow(train_acc)
-                writer.writerow(test_acc)
+                writer.writerow(['train acc', train_acc])
+                writer.writerow(['test acc', test_acc])
             f.close()
         finally:
             print('--------finished predict--------')
@@ -244,7 +263,7 @@ class LSTM_classifier():
         train_t = np.copy(self.train_t)
         for label in np.unique(self.train_t):
             buff = np.load('{0}/dataset/{1}/{2}_iter{3}_class{4}.npy'.format(filedir, datadir, flag, iter, int(label)))
-            num_train = len(self.train_t == label)
+            num_train = np.sum(self.train_t == label)
             buff = buff[:int(times*num_train)]
             train_x = np.append(train_x, buff[:, :, None], axis=0)
             buff_t = np.ones((buff.shape[0]))*label
@@ -267,7 +286,7 @@ def lstm_classification():
     Acc_train = []
     Acc_test = []
 
-    for i, j in itertools.product(np.arange(0, max_times+1, delta_times), flag_list):
+    for i, j in itertools.product(np.arange(0, max_times+delta_times, delta_times), flag_list):
         if j == flag_list[0]:
             buff_train = []
             buff_test = []
@@ -285,7 +304,7 @@ def lstm_classification():
             
     Acc_train = np.array(Acc_train)
     Acc_test = np.array(Acc_test)
-    label = ['num of DA: {0}'.format(i) for i in range(0, max_times+1, delta_times)]
+    label = ['num of DA: {0}'.format(i) for i in np.arange(0, max_times+delta_times, delta_times)]
     with open('{0}/classification_acc.csv'.format(model.initpath), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(label)
@@ -297,7 +316,7 @@ def lstm_classification():
             writer.writerow(Acc_test[:, i])
 
 
-def classifier_nearest_neighbor(times, aug, dis):    
+def classifier_nearest_neighbor(times, aug, dis, k=1):    
     train_x = np.load('{0}/dataset/{1}/train{2}.npy'.format(filedir, datadir, iter))
     class_num = len(np.unique(train_x[:, -1]))
     for ind, label in enumerate(np.unique(train_x[:, -1])):
@@ -318,23 +337,25 @@ def classifier_nearest_neighbor(times, aug, dis):
     for ind, label in enumerate(np.unique(test_t)):
         test_t[test_t == label]  = ind
 
-    print(train_x.shape)
-    print(test_x.shape)
-    
     if dis == 'dtw': loss, m, s = dtw(test_x, train_x)
     elif dis == 'mse': loss, m, s = mse(test_x, train_x)
     else: print('selected dtw or mse')
-    
+
     loss = loss.reshape(test_x.shape[0], -1)
+    loss_sort = np.argsort(loss, axis=1)
+    min_ind = loss_sort[:, :k]
     min_ind = np.argmin(loss, axis=1)
     acc = 0
     for idt, idx in enumerate(min_ind):
-        if test_t[idt] == train_t[idx]: acc += 1
+        buff = 0
+        for iidx in idx:
+            if test_t[idt] == train_t[idx]: buff += 1
+        if buff > np.ceil(k/2): acc += 1
 
     return acc / test_x.shape[0]
 
 
-def NN_classification(dis):
+def NN_classification(dis, k=1):
     initpath = '{0}/nearest_neighbor'.format(filepath)
     if os.path.exists(initpath) is False:
         os.makedirs(initpath)
@@ -345,14 +366,14 @@ def NN_classification(dis):
             buff = []
         print('num of DA: {0}'.format(i))
         print('method: {0}'.format(j))
-        acc = classifier_nearest_neighbor(times=i, aug=j, dis=dis)
+        acc = classifier_nearest_neighbor(times=i, aug=j, dis=dis, k=k)
         buff.append(acc)
         if j == flag_list[-1]:
             acc_list.append(buff)
     
     acc_array = np.array(acc_list)
     label = ['num of DA: {0}'.format(i) for i in np.arange(0, max_times+1, delta_times)]
-    with open('{0}/nn_classification_acc_{1}.csv'.format(initpath, dis), 'w') as f:
+    with open('{0}/k-{1}nn_classification_acc_{2}.csv'.format(initpath, int(k), dis), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(label)
         for i, j in enumerate(flag_list):
@@ -361,21 +382,10 @@ def NN_classification(dis):
 
 
 def main():
-    with open('{0}/condition.csv'.format(filepath), 'w') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(['dataset: {}'.format(datadir)])
-        writer.writerow(['optmizer: {}'.format(OPT)])
-        writer.writerow(['epoch: {}'.format(epoch)])
-        writer.writerow(['cell: {}'.format(num_cell)])
-        writer.writerow(['layer: {}'.format(nlayer)])
-        writer.writerow(['batchsize: {}'.format(batchsize)])
-        writer.writerow(['gpus: {}'.format(gpus)])
-        writer.writerow(['max times: {}'.format(max_times)])
-        writer.writerow(['delta times: {}'.format(delta_times)])
-
-    NN_classification('dtw')
-    # lstm_classification()
-    # write_slack('classifier', 'finish')
+    K = 1
+    # NN_classification('dtw', k=K)
+    lstm_classification()
+    write_slack('classifier', 'finish')
 
 if __name__ == '__main__':
     main()
