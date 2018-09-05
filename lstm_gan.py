@@ -106,7 +106,7 @@ class create_model():
         class_num = len(np.unique(self.t))
         for ind, label in enumerate(np.unique(self.t)):
             self.t[self.t == label]  = ind
-            print('class{0} : '.format(ind), len(self.t == label))
+            print('class{0} : '.format(ind), sum(self.t == label))
         # self.t[self.t > 0]  = 1
         with open('{0}/condition.csv'.format(filepath), 'a') as f:
             writer = csv.writer(f, lineterminator='\n')
@@ -238,12 +238,12 @@ class create_model():
             z = create_random_input(batch_size)
             randomlabel = np.random.randint(0, class_num, batch_size)
             class_info = np.array([self.label2seq(j) for j in randomlabel])
-            comb_all = np.append(z, class_info, axis=0)
-            comb_all = np.append(comb_all, randomlabel, axis=0)
-            np.random.shuffle(comb_all)
-            z = comb_all(:, :z.shape[1])
-            class_info = comb_all(:, z.shape[1]:z.shape[1]+class_info.shape[1])
-            randomlabel = comb_all(:, -randomlabel.shape[1]:cd )
+            # comb_all = np.append(z, class_info, axis=-1)
+            # comb_all = np.append(comb_all, randomlabel, axis=0)
+            # np.random.shuffle(comb_all)
+            # z = comb_all(:, :z.shape[1])
+            # class_info = comb_all(:, z.shape[1]:z.shape[1]+class_info.shape[1])
+            # randomlabel = comb_all(:, -randomlabel.shape[1]:cd )
             if gpus > 1:
                 loss = self.para_gan.train_on_batch([z, class_info, class_info], [self.gan_target], sample_weight=None)    
             else:
@@ -256,8 +256,8 @@ class create_model():
         # self.gan_target = np.ones((atch_size, 1, 1))
 
         for i in range(epoch):
-            sys.stdout.write('\repoch: {0:d}'.format(i+1))
-            sys.stdout.flush()
+            # sys.stdout.write('\repoch: {0:d}'.format(i+1))
+            # sys.stdout.flush()
             if train_flag == 'unroll':
                     loss_d, loss_g = self.unrolled_train()
             else:
@@ -427,6 +427,7 @@ def main():
         writer.writerow(['cell: {}'.format(ncell)])
         writer.writerow(['layer: {}'.format(nlayer)])
         writer.writerow(['train: {}'.format(train_flag)])
+        writer.writerow(['times: {}'.format(times)])
 
     start = time.time()
     with tf.Session(config=config) as sess:
