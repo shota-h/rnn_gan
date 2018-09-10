@@ -49,10 +49,23 @@ def extrapolation(src1, src2, num):
 
 def noise_addition(src, label, num):
     DST = np.empty((0, src.shape[1]))
+    var = np.var(src)
+    for i in range(src.shape[0]):
+        z = np.random.normal(0, var, size=(num, src.shape[1]))
+        dst = src[i:i+1] + 0.5 * z
+        DST = np.append(DST, dst, axis=0)
+    np.random.shuffle(DST)
+    np.save('{0}/{1}/noise_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, label), DST)
+
+
+def noise_addition2(src, label, num):
+    DST = np.empty((0, src.shape[1]))
+    var = np.var(src, axis=0)
+
     for i in range(src.shape[0]):
         for t in range(src.shape[1]):
-            var = np.var(src[:, t])
-            z = np.random.normal(0, var, (num, 1))
+            # var = np.var(src[:, t])
+            z = np.random.normal(0, var[t], (num, 1))
             if t == 0:
                 dst = np.copy(z)
             else:
@@ -61,10 +74,7 @@ def noise_addition(src, label, num):
         DST = np.append(DST, dst, axis=0)
     np.random.shuffle(DST)
     np.save('{0}/{1}/noise_iter{2}_class{3}.npy'.format(loadpath, datadir, iter, label), DST)
-    plt.plot(src[0])
-    plt.plot(DST[0])
-    plt.savefig('{0}/sample-noise{1}.png'.format(filepath, datadir))
-    plt.close()
+
 
 def main():
     flag = args.flag
