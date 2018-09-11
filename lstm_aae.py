@@ -345,9 +345,9 @@ class create_model():
             x_ = self.decoder.predict([create_input(100)])
             x_ = np.array(x_)
             if i == 0:
-                X = np.copy(x_[:,:,0])
+                X = np.copy(x_[:,:,:])
             else:
-                X = np.append(X, x_[:,:,0],axis=0)
+                X = np.append(X, x_[:,:,:],axis=0)
         np.save('{0}/dataset/{1}/gene_aae.npy'.format(filedir, datadir), X)
 
 
