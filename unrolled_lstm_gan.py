@@ -33,19 +33,20 @@ sgd1 = keras.optimizers.SGD(lr=0.0001, momentum=0.9, decay=0.0, nesterov=False)
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='rnn_gan', help='dir name')
 parser.add_argument('--layer', type=int, default=3, help='number of layers')
-parser.add_argument('--epoch', type=int, default=2000,help='number of epoch')
+parser.add_argument('--epoch', type=int, default=10000,help='number of epoch')
 parser.add_argument('--cell', type=int, default =200, help='number of cell')
 parser.add_argument('--type', type=str, default='normal', help='normal or abnormal')
-parser.add_argument('--data', type=str, default='raw', help='raw or model')
-parser.add_argument('--nTrain', type=int, default=50, help='number of train data')
-parser.add_argument('--length', type=int, default=96, help='sequence length')
+# parser.add_argument('--data', type=str, default='raw', help='raw or model')
+# parser.add_argument('--nTrain', type=int, default=50, help='number of train data')
+# parser.add_argument('--length', type=int, default=96, help='sequence length')
 parser.add_argument('--opt', type=str, default='adam', help='optimizer')
-parser.add_argument('--visible_device', type=str, default='0', help='visible device')
-parser.add_argument('--trainflag', type=str, default='vanila', help='training flag')
+parser.add_argument('--trainflag', type=str, default='unroll', help='training flag')
 parser.add_argument('--datadir', type=str, default='ECG1', help='dataset dir')
 parser.add_argument('--nAug', type=int, default=1000, help='number of data augmentation')
 parser.add_argument('--nBatch', type=int, default=1, help='number of Batch')
 parser.add_argument('--gpus', type=int, default=1, help='number gpus')
+parser.add_argument('--gpuid', type=str, default='0', help='gpu id')
+
 args = parser.parse_args()
 
 dirs = args.dir
@@ -53,13 +54,13 @@ nlayer = args.layer
 epoch = args.epoch
 ncell = args.cell
 TYPEFLAG = args.type
-DATATYPE = args.data
-nTrain = args.nTrain
-seq_length = args.length
-visible_device = args.visible_device
+# DATATYPE = args.data
+# nTrain = args.nTrain
+# seq_length = args.length
+visible_device = args.gpuid
 train_flag = args.trainflag
 datadir = args.datadir
-nAug = args.nAug
+# nAug = args.nAug
 if args.opt == 'adam':
     opt = adam1
 elif args.opt == 'sgd':
@@ -68,7 +69,7 @@ else:
     sys.exit()
 nbatch = args.nBatch
 gpus = args.gpus
-sbatch = int(nTrain / nbatch)
+# sbatch = int(nTrain / nbatch)
 feature_count = 1
 output_count = 1
 numl2 = 0.01
@@ -77,13 +78,13 @@ nroll = 5
 if gpus > 1:
     config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0, 1'), device_count={'GPU':2})
 else:
-    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0'), device_count={'GPU':1})
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list=visible_device), device_count={'GPU':1})
 
 session = tf.Session(config=config)
 K.set_session(session)
 
 filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/unrolled-lstm-gan/{1}-{7}/{2}-{3}-{4}/l{5}_c{6}'.format(filedir, dirs, TYPEFLAG, DATATYPE, train_flag, nlayer, ncell, datadir)
+filepath = '{0}/unrolled-rnn-gan/{1}-{6}/{2}-{3}/l{4}_c{5}'.format(filedir, dirs, TYPEFLAG, train_flag, nlayer, ncell, datadir)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
 
@@ -98,7 +99,7 @@ def mean(y_true, y_pred):
 
 class create_model():
     def __init__(self):
-        filename = '{0}_train'.format(TYPEFLAG, DATATYPE)
+        filename = '{0}_train'.format(TYPEFLAG)
         self.y = self.load_dataset(filename)
         self.target_y = np.zeros((nTrain, 1, 1))
         self.target_x = np.ones((nTrain, 1, 1))
@@ -123,23 +124,29 @@ class create_model():
             print('not open dataset')
         else:
             y = np.load(f.name)
-            if y.shape[0] < nTrain:
-                print('minimam shape')
-                sys.exit()
-            train_y = y[:nTrain]
-            # test_y = y[nTrain:]
-            if seq_length == 2:
-                plt.scatter(y[:,0], y[:,1],marker='o')
-                plt.savefig('{0}/dataset.png'.format(filepath))
-                plt.close()
-            else:
-                plt.plot(y.T)
-                plt.savefig('{0}/dataset.png'.format(filepath))
-                plt.close()
+            # if y.shape[0] < nTrain:
+            #     print('minimam shape')
+            #     sys.exit()
+            # train_y = y[:nTrain]
+            # # test_y = y[nTrain:]
+            # if seq_length == 2:
+            #     plt.scatter(y[:,0], y[:,1],marker='o')
+            #     plt.savefig('{0}/dataset.png'.format(filepath))
+            #     plt.close()
+            # else:
+            #     plt.plot(y.T)
+            #     plt.savefig('{0}/dataset.png'.format(filepath))
+            #     plt.close()
+            global nTrain, seq_length, sbatch, nAug
+            nTrain = y.shape[0]
+            seq_length = y.shape[1]
+            sbatch = int(np.ceil(nTrain/nbatch))
+            nAug = nTrain * 20
             f.close()
         finally:
             pass
-        train_y = train_y[:, :, None]
+        # print(train_y)
+        train_y = y[:, :, None]
         return train_y
 
     def build_generator(self):
@@ -254,8 +261,12 @@ class create_model():
 def main():
     with open('{0}/condition.csv'.format(filepath), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(['nTrain:{0}'.format(nTrain)])
+        # writer.writerow(['nTrain:{0}'.format(nTrain)])
         writer.writerow(['optmizer:{0}'.format(opt)])
+        writer.writerow(['layer:{0}'.format(nlayer)])
+        writer.writerow(['cell:{0}'.format(ncell)])
+        writer.writerow(['epoch:{0}'.format(epoch)])
+        writer.writerow(['nbatch:{0}'.format(nbatch)])
 
     start = time.time()
     print('\n----setup----\n')
@@ -276,7 +287,7 @@ def main():
                 loss_d, loss_g = model.normal_train()
 
             if (i + 1) % 1 == 0:
-                print('epoch:{0}'.format(i+1))
+                # print('epoch:{0}'.format(i+1))
                 x_ = model.gene.predict([create_random_input(1)])
                 pred_g = model.dis.predict([x_])[0, 0, 0]
                 pred_d = model.dis.predict([model.y[:1, :, :]])[0, 0, 0]
