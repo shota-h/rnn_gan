@@ -1,8 +1,6 @@
 import numpy as np
 import os, itertools, sys
 
-file_dir = os.path.abspath(os.path.dirname(__file__))
-
 
 def dtws(vec1, vec2, band_flag=False, num_band=0):
     dst = []
@@ -52,7 +50,7 @@ def test_dtw(vec1, vec2, band_flag=False, num_band=0):
 
 def mse(vec1, vec2):
     dst = []
-    for k1, k2 in itertools.product(range(vec1.shape[0]),range(vec2.shape[0])):
+    for k1, k2 in itertools.product(range(vec1.shape[0]), range(vec2.shape[0])):
         diff = np.linalg.norm(vec1[k1] - vec2[k2])
         dst.append(diff)
 
@@ -61,11 +59,3 @@ def mse(vec1, vec2):
     std_dst = np.std(dst, axis=1)
 
     return dst, mean_dst, std_dst
-
-
-def main():
-    return 0
-
-
-if __name__=='__main__':
-    main()
