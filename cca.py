@@ -1,5 +1,5 @@
 import numpy as np
-import os
+import os, sys, json
 import argparse
 import matplotlib
 matplotlib.use('Agg')
@@ -7,6 +7,15 @@ import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import CCA
 from scipy.stats import pearsonr, chi2
 # import skimage
+import random as rn
+import tensorflow as tf
+from keras.models import model_from_json
+from keras import backend as K
+from keras.layers.merge import concatenate
+SEED = 1
+np.random.seed(SEED)
+rn.seed(SEED)
+tf.set_random_seed(SEED)
 
 
 parser = argparse.ArgumentParser()
@@ -15,14 +24,17 @@ parser.add_argument('--datadir', type=str, default='ECG200', help='select datase
 parser.add_argument('--Class', type=int, default=0, help='select dataset')
 parser.add_argument('--n_comp', type=int, default=3, help='select dataset')
 parser.add_argument('--pos', type=int, default=0, help='select dataset')
+parser.add_argument('--load', type=int, default=0, help='select loading index')
 args = parser.parse_args()
 dirs = args.dir
 datadir = args.datadir
 Class = args.Class
+l_ind = args.load
 
 
 filedir = os.path.abspath(os.path.dirname(__file__))
 filepath = '{0}/{1}/{2}'.format(filedir, dirs, datadir)
+config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='1'), device_count={'GPU':0})
 
 
 def trans_data(src, z):
@@ -52,16 +64,15 @@ def trans_data(src, z):
     mean_freq = np.mean(buff, axis=1)
     dst = np.empty((src.shape[0], 0))
     dst = np.append(dst, uppeak_src[..., None], axis=1)
+    dst = np.append(dst, uppeak_ind[..., None], axis=1)
     dst = np.append(dst, downpeak_src[..., None], axis=1)
+    dst = np.append(dst, downpeak_ind[..., None], axis=1)
     dst = np.append(dst, peak_to_peak[..., None], axis=1)
     dst = np.append(dst, mean_src[..., None], axis=1)
     dst = np.append(dst, mean_freq[..., None], axis=1)
-    print(locals().keys())
     if 'del_ind' in locals():
         dst = np.delete(dst, del_ind, axis=0)
         z = np.delete(z, del_ind, axis=0)
-    print(dst.shape)
-    print(z.shape)
     return dst, z
 
 
@@ -77,17 +88,19 @@ def morphing_disp():
 
 def disp_subplot(src, n=[1,1], name=None, axis_fix=False, ylim=[None, None],plot_type='line'):
     ny, nx = n
-    ymin, ymax = ylim
-    assert ny * nx >= len(src), 'nx and ny is small'
-    label = ['max', 'min', 'p2p', 'mean', 'meanfreq']
+    ymin, ymax = ylim[0], ylim[1]
+    assert ny * nx <= len(src), 'nx and ny is small'
+    src = src[:int(nx*ny)]
+    # label = ['max', 'min', 'p2p', 'mean', 'meanfreq']
+    label = ['max', 'max ind', 'min', 'min ind', 'p2p', 'mean', 'meanfreq']
     if src.shape[1] != len(label):
         label = np.arange(0, src.shape[1], 1)
-    ylim = [np.min(src), np.max(src)]
     fig = plt.figure(figsize=(12,9))
     fig.suptitle(name, fontsize=20)
     if ymax is None and ymin is None:
         ymax = src.max()
         ymin = src.min()
+        ylim = [np.min(src), np.max(src)]
 
     for i, j in enumerate(src):
         ax = fig.add_subplot(ny, nx, i+1)
@@ -102,7 +115,7 @@ def disp_subplot(src, n=[1,1], name=None, axis_fix=False, ylim=[None, None],plot
                 plt.text(x, y, '{:.2f}'.format(y), ha='center', va='bottom')
 
         if axis_fix:
-            ax.set_ylim(ylim)
+            ax.set_ylim(ymin, ymax)
     fig.savefig('{0}/{1}.png'.format(filepath, name))
     plt.close()
 
@@ -131,7 +144,6 @@ def calc_cca(x1, x2, low_corr=0):
     # n_comp = x1.shape[1]
     cca = CCA(n_components=n_comp)
     cca.fit(x1, x2)
-    print(cca.x_scores_.shape)
     ind = []
     corr_list = []
     for i in range(n_comp):
@@ -150,23 +162,92 @@ def calc_cca(x1, x2, low_corr=0):
     disp_subplot(cca.y_loadings_.T[ind], n=[len(ind), 1], name='cca_z_class{}'.format(Class))
     disp_subplot(cca.x_rotations_.T[ind], n=[len(ind), 1], name='w_x_class{}'.format(Class))
     disp_subplot(cca.y_rotations_.T[ind], n=[len(ind), 1], name='w_z_class{}'.format(Class))
-    disp_subplot(x1[:3], n=[3, 1], name='ori_x_class{}'.format(Class), axis_fix=True, plot_type='bar')
-    disp_subplot(x2[:3], n=[3, 1], name='ori_z_class{}'.format(Class), axis_fix=True)
+    disp_subplot(x1[:x1.shape[1]], n=[x1.shape[1], 1], name='ori_x_class{}'.format(Class), axis_fix=True, plot_type='bar')
+    disp_subplot(x2[:x2.shape[1]], n=[x2.shape[1], 1], name='ori_z_class{}'.format(Class), axis_fix=True)
     xx = center_scale(x1)
-    disp_subplot(xx[:3], n=[3, 1], name='gene_x_class{}'.format(Class), axis_fix=True, plot_type='bar')
+    disp_subplot(xx[:x1.shape[1]], n=[x1.shape[1], 1], name='gene_x_class{}'.format(Class), axis_fix=True, plot_type='bar')
     xx = center_scale(x2)
-    disp_subplot(xx[:3], n=[3, 1], name='gene_z_class{}'.format(Class), axis_fix=True)
-    return
+    disp_subplot(xx[:x1.shape[1]], n=[x1.shape[1], 1], name='gene_z_class{}'.format(Class), axis_fix=True)
 
+    return cca.x_loadings_, cca.y_loadings_
     np.set_printoptions(formatter={'float': '{: 0.4f}'.format})
     print("X1 loadings")
     print(cca.x_loadings_.T)
     print("X2 loadings")
     print(cca.y_loadings_.T)
     print("")
+    return cca.x_loadings_.T[ind].T, cca.y_loadings_.T[ind].T
+
+
+def control_z(src, c):
+    loadpath = '{0}/lstm-gan/{1}_split_No0'.format(filedir, datadir)
+    global seq_length, feature_count
+    seq_length = src.shape[1]
+    feature_count = 1
+    with tf.Session(config=config) as sess:
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        with open('{0}/model_gene.json'.format(loadpath),'r') as f:
+            model = json.load(f)
+            model = model_from_json(model)
+            model.load_weights('{0}/gene_param.hdf5'.format(loadpath))
+            label = np.zeros((src.shape[0], seq_length, 2))
+            label[..., c] = 1
+            z = np.append(src, label, axis=2)
+            x_ = model.predict([z])
+            x_ = np.array(x_)
+            dst = np.append(x_, z[..., :1], axis=2)
+
+    return dst
 
 
 def main():
+    x = np.load('{0}/dataset/{1}/train0.npy'.format(filedir, datadir))
+    buff = []
+    np.set_printoptions(formatter={'float': '{: 0.4f}'.format})
+    for cc, i in enumerate(np.unique(x[..., -1])):
+        src = x[x[..., -1]==i, :-1]
+        trans_x1, trans_x2 = trans_data(src, src)
+        print(trans_x1.mean(axis=0))
+        print(trans_x1.std(axis=0))
+        plt.figure(figsize = (16, 9))
+        plt.plot(src.mean(axis=0))
+        plt.plot(src[:3].T)
+        plt.ylim([0,1])
+        plt.title('{}'.format(cc))
+        plt.savefig('{0}/CCA/ECG200/train_average_class{1}.png'.format(filedir, cc))
+        plt.close()
+        plt.figure(figsize = (16, 9))
+        plt.bar(range(len(trans_x1.mean(axis=0))), trans_x1.mean(axis=0), yerr = trans_x1.std(axis=0))
+        plt.title('{}'.format(cc))
+        plt.savefig('{0}/CCA/ECG200/train_feature_hist_class{1}.png'.format(filedir, cc))
+        plt.close()
+        src = src.mean(axis=0)
+        buff.append(src)
+    buff = np.asarray(buff)
+    trans_x1, trans_x2 = trans_data(buff, buff)
+    print(trans_x1)
+    return
+
+    x = np.load('{0}/class{1}.npy'.format(filepath, Class))
+    x1 = x[..., 0]
+    x2 = x[..., 1]
+    trans_x1, trans_x2 = trans_data(x1, x2)
+    x_loadings, y_loadings = calc_cca(trans_x1, trans_x2, low_corr=0.45)
+    # y_loadings = (y_loadings - y_loadings.min(axis=0)) /(y_loadings.max(axis=0) - y_loadings.min(axis=0))
+    assert x_loadings.shape[1] > l_ind, 'print load index{0}'.format(l_ind) 
+    p = l_ind
+    z = [y_loadings[:, p] * i for i in np.arange(0.5, 1.5, 1/100)]
+    z = np.asarray(z)[..., None]
+    g_z = control_z(src=z, c=Class)
+
+    trans_x, trans_y = trans_data(g_z[..., 0], g_z[..., 1])
+    ind = range(0, 100, 15)
+    disp_subplot(g_z[ind, :, 0], n=[3,2], plot_type='line', name='control_gz_based_on_loading{1}_class{0}'.format(Class, p), axis_fix=True, ylim=[0,1])
+    disp_subplot(trans_x[ind], n=[3,2], plot_type='bar', name='gz_based_on_loading{1}_class{0}'.format(Class, p), axis_fix=True)
+    disp_subplot(trans_y[ind], n=[3,2], plot_type='line', name='z_based_on_loadings{1}_class{0}'.format(Class, p), axis_fix=True)
+    return
+
     # morphing_disp()
     # x = np.load('{0}/walk_pos{2}_class{1}.npy'.format(filepath, Class, args.pos))
     x = np.load('{0}/walk2_class{1}.npy'.format(filepath, Class, args.pos))
@@ -174,20 +255,14 @@ def main():
     x2 = x[..., 1]
     trans_x1, trans_x2 = trans_data(x1, x2)
     # ind = np.random.randint(0, 100, 10)
-    ind = range(0, 100, 10)
+    ind = range(0, 100, 25)
     # disp_subplot(trans_x1[ind], n=[5,2], plot_type='bar', name='walk_pos{1}_class{0}'.format(Class, args.pos), axis_fix=True)
     # disp_subplot(trans_x2[ind], n=[5,2], plot_type='line', name='walk_pos{1}_z_class{0}'.format(Class, args.pos))
     # disp_subplot(x1[ind], n=[5,2], plot_type='line', name='walk_pos{1}_sample{0}'.format(Class, args.pos))
-    disp_subplot(trans_x1[ind], n=[5,2], plot_type='bar', name='walk2_class{0}'.format(Class, args.pos), axis_fix=True)
-    disp_subplot(trans_x2[ind], n=[5,2], plot_type='line', name='walk2_z_class{0}'.format(Class, args.pos))
-    disp_subplot(x1[ind], n=[5,2], plot_type='line', name='walk2_sample{0}'.format(Class, args.pos))
+    disp_subplot(trans_x2[ind], n=[2,2], plot_type='line', name='walk2_z_class{0}'.format(Class, args.pos))
+    disp_subplot(x1[ind], n=[2,2], plot_type='line', name='walk2_sample{0}'.format(Class, args.pos))
     # return
 
-    x = np.load('{0}/class{1}.npy'.format(filepath, Class))
-    x1 = x[..., 0]
-    x2 = x[..., 1]
-    trans_x1, trans_x2 = trans_data(x1, x2)
-    calc_cca(trans_x1, trans_x2, low_corr=0.45)
 
 if __name__ == '__main__':
     main()
