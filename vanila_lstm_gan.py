@@ -44,7 +44,10 @@ gpus = args.gpus
 latent_vector = 1
 feature_count = 1
 # class_num = 2
-nroll = 5
+if train_flags == 'unroll':
+    nroll = 5
+else:
+    nroll = 1
 std_normal = 1
 mean_normal = 1
 SEED = args.seed
@@ -86,6 +89,7 @@ filepath = '{0}/{1}/{2}_split_No{3}'.format(filedir, dirs, datadir, iter)
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
     os.makedirs('{0}/figure'.format(filepath))
+    os.makedirs('{0}/params'.format(filepath))
 
 
 def create_random_input(ndata):
@@ -116,10 +120,11 @@ class create_model():
         seq_length = self.y.shape[1]
         num_train = self.y.shape[0]
         # batch_size = int(num_train / num_batch)
-        batch_size = int(args.batchsize * gpus)
-        if num_train < batch_size:
-            batch_size = num_train
-        num_batch = int(np.ceil(num_train / batch_size))
+        # self.batch_size = int(args.batchsize * gpus)
+        # if num_train < self.batch_size:
+        #     self.batch_size = num_train
+        # num_batch = int(np.ceil(num_train / self.batch_size))
+        self.num_batch = args.numbatch
 
         self.gene = self.build_generator()
         self.dis = self.build_discriminator()
@@ -243,18 +248,16 @@ class create_model():
         for i in range(epoch):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
             # sys.stdout.flush()
-            if train_flag == 'unroll':
-                    loss_d, loss_g = self.unrolled_train()
-            else:
-                loss_d, loss_g = self.normal_train()
-
+            loss_d, loss_g = self.unrolled_train()
             summary = tf.Summary(value=[
                                     tf.Summary.Value(tag='loss_dis',
                                                     simple_value=loss_d),
                                     tf.Summary.Value(tag='loss_gan',
                                                     simple_value=loss_g), ])
             self.writer.add_summary(summary, i+1)
-            if (i + 1) % 100 == 0: self.output_plot(i+1)
+            if (i + 1) % 100 == 0:
+                self.output_plot(i+1)
+                self.in_the_middle(i+1)
 
         with open('{0}/gene_param.hdf5'.format(self.savepath), 'w') as f:
             self.gene.save_weights(f.name)    
@@ -264,50 +267,11 @@ class create_model():
             self.gan.save_weights(f.name)
 
 
-    def normal_train(self):
-        self.num_batch = int(np.ceil(num_train / batch_size))
-
-        idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
-        for i in range(self.num_batch):
-            z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-            randomlabel = np.random.randint(0, class_num, z.shape[0])
-            class_info = np.array([self.label2seq(i) for i in randomlabel])
-            Z = np.concatenate((z, class_info), axis=2)
-            x_ = self.gene.predict([Z])
-            x_ = np.concatenate((x_, class_info), axis=2)
-            
-            r_label = np.array([self.label2seq(j) for j in self.t[idx[i*batch_size:(i+1)*batch_size]]])
-            y = np.concatenate((self.y[idx[i*batch_size:(i+1)*batch_size]], r_label), axis=2)
-            X = np.append(y, x_, axis=0)
-            
-            # target_z = np.zeros((z.shape[0], 1, 1))
-            # target_y = np.ones_like(target_z)
-            # dis_target = np.append(target_y, target_z, axis=0)
-            dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
-            if gpus > 1:
-                loss_d = self.para_dis.train_on_batch([X], [np.array(dis_target)], sample_weight=None)
-            else:
-                loss_d = self.dis.train_on_batch([X], [np.array(dis_target)], sample_weight=None)
-
-            gan_target = [[[1]]]*z.shape[0]
-            z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-            randomlabel = np.random.randint(0, class_num, z.shape[0])
-            class_info = np.array([self.label2seq(i) for i in randomlabel])
-            if gpus > 1:
-                loss_g = self.para_gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)    
-            else:
-                loss_g = self.gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)
-
-        # loss_d = self.train_dis()
-        # loss_g = self.train_gan()
-        return loss_d, loss_g
-
-
     def unrolled_train(self):
-        if self.y.shape[0] < batch_size:
-            self.batch_size = self.y.shape[0]
-        self.num_batch = int(np.ceil(self.y.shape[0] / self.batch_size))
-
+        # if self.y.shape[0] < self.batch_size:
+        #     self.batch_size = self.y.shape[0]
+        # self.num_batch = int(np.ceil(self.y.shape[0] / self.batch_size))
+        self.batch_size = int(np.ceil(self.y.shape[0] / self.num_batch))
         idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
         for i in range(self.num_batch):
             for roll in range(nroll):
@@ -373,7 +337,7 @@ class create_model():
         
         plt.figure(figsize=(16, 9))
         for i in range(12):
-            plt.subplot(3,4,i+1)
+            plt.subplot(3, 4, i+1)
             # if i < 6:
                 # plt.plot(self.y[j[i], :, 0].T, color='red')
                 # plt.title('label:{}'.format(int(self.t[j[i]])))
@@ -398,13 +362,21 @@ class create_model():
                     X = np.copy(x_[:,:,0])
                 else:
                     X = np.append(X, x_[:,:,0],axis=0)
-            np.save('{0}/dataset/{1}/vanila_gan_iter{2}_class{3}.npy'.format(filedir, datadir, int(iter), int(label)), X)
+            np.save('{0}/dataset/{1}/gan_iter{2}_class{3}.npy'.format(filedir, datadir, int(iter), int(label)), X)
 
 
     def label2seq(self, label):
         onehot = np.zeros((seq_length, class_num))
         onehot[..., int(label)] = 1
         return onehot
+
+    def in_the_middle(e):
+        with open('{0}/gene_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
+            self.gene.save_weights(f.name)    
+        with open('{0}/dis_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
+            self.dis.save_weights(f.name)    
+        with open('{0}/gan_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
+            self.gan.save_weights(f.name)
 
 
 def main():
@@ -441,11 +413,11 @@ def main():
             model.writer = writer
             model.train(epoch)
             model.make_data()
-        
+
     K.clear_session()
     dt = time.time() - start
     print('finished time : {0}[sec]'.format(dt))
-    write_slack('{0}', 'program finish dataset: {1}, iter: {2}'.format(__file__,datasetdir, iter))
+    write_slack('{0}', 'program finish dataset: {1}, iter: {2}'.format(__file__, datadir, iter))
 
 
 if __name__ == '__main__':
