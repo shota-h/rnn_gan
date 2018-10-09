@@ -365,19 +365,18 @@ class create_model():
         with open('{0}/params/gan_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
             self.gan.save_weights(f.name)
 
+def output_condition(path, *args):
+    args = vars(args[0])
+    print('\n-----output condition-----\n')
+    with open('{0}/condition.csv'.format(path), 'w') as f:
+        writer = csv.writer(f, lineterminator='\n')
+        for i in args.keys():
+            writer.writerow(['{0}: {1}'.format(i, args[i])])
+
 
 def main():
+    output_condition(filepath, args)
     print('\n----setup----\n')
-    with open('{0}/condition.csv'.format(filepath), 'w') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(['args: {}'.format(vars(args))])
-        writer.writerow(['dataset: {}'.format(datadir)])
-        writer.writerow(['optmizer: {}'.format(opt)])
-        writer.writerow(['cell: {}'.format(ncell)])
-        writer.writerow(['layer: {}'.format(nlayer)])
-        writer.writerow(['train: {}'.format(train_flag)])
-        writer.writerow(['times: {}'.format(times)])
-        writer.writerow(['batchsize: {}'.format(args.batchsize)])
 
     start = time.time()
     with tf.Session(config=config) as sess:
