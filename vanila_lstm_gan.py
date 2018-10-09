@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# crnn GAN
+# rnn GAN
 # signal generate
 import matplotlib
 matplotlib.use('Agg')
@@ -8,7 +8,7 @@ import numpy as np
 import random as rn
 import tensorflow as tf
 import os, sys, json, itertools, time, argparse, csv
-from write_slack import write_slack
+from __init__ import log, write_slack
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='vanila-lstm-gan', help='dir name')
@@ -44,7 +44,7 @@ gpus = args.gpus
 latent_vector = 1
 feature_count = 1
 # class_num = 2
-if train_flags == 'unroll':
+if train_flag == 'unroll':
     nroll = 5
 else:
     nroll = 1
@@ -203,39 +203,29 @@ class create_model():
         return Model(inputs=[z], outputs=valid)
 
 
-    def train_dis(self, flag=None, flag_num=None):
-        idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
-        for i in range(num_batch):
-            z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-            x_ = self.gene.predict([z])
-            # x_ = np.concatenate((x_, class_info), axis=2)
-            
-            y = self.y[idx[i*batch_size:(i+1)*batch_size]]
-            X = np.append(y, x_, axis=0)
-            
-            target_z = np.zeros((z.shape[0], 1, 1))
-            target_y = np.ones_like(target_z)
-            dis_target = np.append(target_y, target_z, axis=0)
-            
-            if gpus > 1:
-                loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
-            else:
-                loss = self.dis.train_on_batch([X], [dis_target], sample_weight=None)
-            if flag == 'unroll' and flag_num == 0:
-                with open('{0}/dis_param_unroll.hdf5'.format(self.savepath), 'w') as f:
-                    self.dis.save_weights(f.name)
+    def train_dis(self, ind):
+        z = create_random_input(len(ind))
+        x_ = self.gene.predict([z])
+        y = self.y[ind]
+        X = np.append(y, x_, axis=0)
+        dis_target = [[[1]]]*y.shape[0] + [[[0]]]*z.shape[0]
+        dis_target = np.asarray(dis_target)
+        if gpus > 1:
+            loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
+        else:
+            loss = self.dis.train_on_batch([X], [dis_target], sample_weight=None)
         return loss
 
 
-    def train_gan(self):
-        for i in range(num_batch):
-            z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-            gan_target = np.ones_like(z)
-            if gpus > 1:
-                loss = self.para_gan.train_on_batch([z], [gan_target], sample_weight=None)    
-            else:
-                loss = self.gan.train_on_batch([z], [gan_target], sample_weight=None)
-        return loss    
+    def train_gan(self, ind):
+        z = create_random_input(len(ind))
+        gan_target = [[[1]]]*z.shape[0]
+        gan_target = np.asarray(gan_target)
+        if gpus > 1:
+            loss = self.para_gan.train_on_batch([z], [gan_target], sample_weight=None)
+        else:
+            loss = self.gan.train_on_batch([z], [gan_target], sample_weight=None)
+        return loss
 
 
     def train(self, epoch):
@@ -255,6 +245,8 @@ class create_model():
                                     tf.Summary.Value(tag='loss_gan',
                                                     simple_value=loss_g), ])
             self.writer.add_summary(summary, i+1)
+            log(filepath, 'epoch:{0:10d}'.format(i+1))
+
             if (i + 1) % 100 == 0:
                 self.output_plot(i+1)
                 self.in_the_middle(i+1)
@@ -275,39 +267,13 @@ class create_model():
         idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
         for i in range(self.num_batch):
             for roll in range(nroll):
-                z = create_random_input(len(idx[i*self.batch_size:(i+1)*self.batch_size]))
-                x_ = self.gene.predict([z])
-                # x_ = np.concatenate((x_, class_info), axis=2)
-                
-                y = self.y[idx[i*self.batch_size:(i+1)*self.batch_size]]
-                X = np.append(y, x_, axis=0)
-                
-                # target_z = np.zeros((z.shape[0], 1, 1))
-                # target_y = np.ones_like(target_z)
-                # dis_target = np.append(target_y, target_z, axis=0)
-                dis_target = [[[1]]]*y.shape[0] + [[[0]]]*z.shape[0]
-                if gpus > 1:
-                    loss_d = self.para_dis.train_on_batch([X], [np.array(dis_target)], sample_weight=None)
-                else:
-                    loss_d = self.dis.train_on_batch([X], [np.array(dis_target)], sample_weight=None)
-                
-                if roll == 0: self.dis.save_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
+                loss_d = self.train_dis(idx[i*self.batch_size:(i+1)*self.batch_size])
+                if roll == 0: 
+                    self.dis.save_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
             
+            loss_g = self.train_gan(idx[i*self.batch_size:(i+1)*self.batch_size])
             self.dis.load_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
-            
-            z = create_random_input(len(idx[i*self.batch_size:(i+1)*self.batch_size]))
-            gan_target = [[[1]]]*z.shape[0]
-            if gpus > 1:
-                loss_g = self.para_gan.train_on_batch([z], [np.array(gan_target)], sample_weight=None)    
-            else:
-                loss_g = self.gan.train_on_batch([z], [np.array(gan_target)], sample_weight=None)
-        
-        # for i in range(nroll):
-        #     loss_d = self.train_dis(flag='unroll', flag_num=i)
-        # loss_g = self.train_gan()
 
-        # with open('{0}/dis_param_unroll.hdf5'.format(filepath), 'r') as f:
-        #     self.dis.load_weights(f.name)
         return loss_d, loss_g
 
 
