@@ -2,6 +2,7 @@ import numpy as np
 import datetime
 import json
 import requests
+import csv
 
 def re_label(src, c_label):
     for i, c in enumerate(c_label):
@@ -31,3 +32,4 @@ def output_condition(path, *args):
         writer = csv.writer(f, lineterminator='\n')
         for i in dicts.keys():
             writer.writerow(['{0}: {1}'.format(i, dicts[i])])
+    return writer

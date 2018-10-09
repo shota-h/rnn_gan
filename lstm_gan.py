@@ -104,7 +104,7 @@ def mean(y_true, y_pred):
 
 class create_model():
     def __init__(self, writer):
-        self.writer = writer
+        self.writer = None
         self.y, self.t = self.load_data()
         self.y = self.y[..., None]
         global class_num
@@ -357,7 +357,7 @@ class create_model():
         return onehot
 
 
-    def in_the_middle(e):
+    def in_the_middle(self, e):
         with open('{0}/params/gene_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
             self.gene.save_weights(f.name)
         with open('{0}/params/dis_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:

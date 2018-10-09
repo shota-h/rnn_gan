@@ -100,8 +100,8 @@ def mean(y_true, y_pred):
     return -tf.reduce_mean(y_pred)
 
 class create_model():
-    def __init__(self, writer):
-        self.writer = writer
+    def __init__(self):
+        self.writer = None
         self.filepath = filepath
         self.y, self.t = self.load_data()
         self.y = self.y[..., None]
@@ -336,7 +336,7 @@ class create_model():
         onehot[..., int(label)] = 1
         return onehot
 
-    def in_the_middle(e):
+    def in_the_middle(self, e):
         with open('{0}/gene_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
             self.gene.save_weights(f.name)    
         with open('{0}/dis_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
@@ -353,7 +353,7 @@ def main():
     with tf.Session(config=config) as sess:
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
-        model = create_model(writer)
+        model = create_model()
         y, t = model.y, model.t
         label_num = np.unique(t)
         for l in label_num:
