@@ -8,7 +8,7 @@ import numpy as np
 import random as rn
 import tensorflow as tf
 import os, sys, json, itertools, time, argparse, csv
-from __init__ import log, write_slack
+from __init__ import log, write_slack, output_condition
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='vanila-lstm-gan', help='dir name')
@@ -343,15 +343,6 @@ class create_model():
             self.dis.save_weights(f.name)    
         with open('{0}/gan_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
             self.gan.save_weights(f.name)
-
-
-def output_condition(path, *args):
-    args = vars(args[0])
-    print('\n-----output condition-----\n')
-    with open('{0}/condition.csv'.format(path), 'w') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        for i in args.keys():
-            writer.writerow(['{0}: {1}'.format(i, args[i])])
 
 
 def main():

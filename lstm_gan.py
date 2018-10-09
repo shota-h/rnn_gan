@@ -8,7 +8,7 @@ import numpy as np
 import random as rn
 import tensorflow as tf
 import os, sys, json, itertools, time, argparse, csv
-from __init__ import re_label, log, write_slack
+from __init__ import re_label, log, write_slack, output_condition
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='lstm-gan', help='dir name')
@@ -365,19 +365,10 @@ class create_model():
         with open('{0}/params/gan_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
             self.gan.save_weights(f.name)
 
-def output_condition(path, *args):
-    args = vars(args[0])
-    print('\n-----output condition-----\n')
-    with open('{0}/condition.csv'.format(path), 'w') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        for i in args.keys():
-            writer.writerow(['{0}: {1}'.format(i, args[i])])
-
 
 def main():
     output_condition(filepath, args)
     print('\n----setup----\n')
-
     start = time.time()
     with tf.Session(config=config) as sess:
         writer = tf.summary.FileWriter('{0}'.format(filepath), sess.graph)
@@ -392,7 +383,7 @@ def main():
     K.clear_session()
     dt = time.time() - start
     print('finished time : {0}[sec]'.format(dt))
-    write_slack('{0}', 'program finish dataset: {1}, iter: {2}'.format(__file__,datadir, iter))
+    write_slack(__file__, 'program finish dataset: {1}, iter: {2}'.format(datadir, iter))
 
 
 if __name__ == '__main__':
