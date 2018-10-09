@@ -349,6 +349,7 @@ def main():
     print('\n----setup----\n')
     with open('{0}/condition.csv'.format(filepath), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(['args: {}'.format(vars(args))])
         writer.writerow(['dataset: {}'.format(datadir)])
         writer.writerow(['optmizer: {}'.format(opt)])
         writer.writerow(['cell: {}'.format(ncell)])
