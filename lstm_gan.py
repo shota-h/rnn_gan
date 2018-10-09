@@ -8,7 +8,7 @@ import numpy as np
 import random as rn
 import tensorflow as tf
 import os, sys, json, itertools, time, argparse, csv
-from write_slack import write_slack
+from __init__ import re_label, log, write_slack
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='lstm-gan', help='dir name')
@@ -45,7 +45,7 @@ gpus = args.gpus
 latent_vector = 1
 feature_count = 1
 # class_num = 2
-if train_flags == 'unroll':
+if train_flag == 'unroll':
     nroll = 5
 else:
     nroll = 1
@@ -164,6 +164,9 @@ class create_model():
             f.close()
         finally:
             pass
+        label_info = np.unique(train_data[:, -1])
+        train_data, label_info = re_label(train_data, label_info)
+
         return train_data[:, :-1], train_data[:, -1]
 
 
@@ -209,60 +212,62 @@ class create_model():
         return Model(inputs=[z, class_info_gene, class_info_dis], outputs=valid)
 
 
-    def train_dis(self, flag=None, flag_num=None):
-        idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
-        for i in range(num_batch):
-            z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-            randomlabel = np.random.randint(0, class_num, z.shape[0])
-            class_info = np.array([self.label2seq(i) for i in randomlabel])
-            Z = np.concatenate((z, class_info), axis=2)
-            x_ = self.gene.predict([Z])
-            x_ = np.concatenate((x_, class_info), axis=2)
-            
-            r_label = np.array([self.label2seq(j) for j in self.t[idx[i*batch_size:(i+1)*batch_size]]])
-            y = np.concatenate((self.y[idx[i*batch_size:(i+1)*batch_size]], r_label), axis=2)
-            X = np.append(y, x_, axis=0)
-            
-            target_z = np.zeros((z.shape[0], 1, 1))
-            target_y = np.ones_like(target_z)
-            dis_target = np.append(target_y, target_z, axis=0)
-            conb_x_t = np.append(X, dis_target, axis=0)
-            np.random.shuffle(conb_x_t)
-            X = conb_x_t[..., :-dis_target.shape[1]]
-            dis_target = conb_x_t[..., -dis_target.shape[1]:]
-            
-            if gpus > 1:
-                loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
-            else:
-                loss = self.dis.train_on_batch([X], [dis_target], sample_weight=None)
-            if flag == 'unroll' and flag_num == 0:
-                with open('{0}/dis_param_unroll.hdf5'.format(filepath), 'w') as f:
-                    self.dis.save_weights(f.name)
+    def train_dis(self, ind):
+        z = create_random_input(len(ind))
+        randomlabel = np.random.randint(0, class_num, z.shape[0])
+        class_info = np.array([self.label2seq(i) for i in randomlabel])
+        Z = np.concatenate((z, class_info), axis=2)
+        x_ = self.gene.predict([Z])
+        x_ = np.concatenate((x_, class_info), axis=2)
+        
+        r_label = np.array([self.label2seq(j) for j in self.t[ind]])
+        y = np.concatenate((self.y[ind], r_label), axis=2)
+        X = np.append(y, x_, axis=0)
+        dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
+        dis_target = np.asarray(dis_target)
+        # z = create_random_input(len(ind))
+        # randomlabel = np.random.randint(0, class_num, z.shape[0])
+        # class_info = np.array([self.label2seq(i) for i in randomlabel])
+        # Z = np.concatenate((z, class_info), axis=2)
+        # x_ = self.gene.predict([Z])
+        # x_ = np.concatenate((x_, class_info), axis=2)
+        
+        # r_label = np.array([self.label2seq(j) for j in self.t[ind]])
+        # y = np.concatenate((self.y[ind], r_label), axis=2)
+        # X = np.append(y, x_, axis=0)
+        
+        # target_z = np.zeros((z.shape[0], 1, 1))
+        # target_y = np.ones_like(target_z)
+        # dis_target = np.append(target_y, target_z, axis=0)
+        # conb_x_t = np.append(X, dis_target, axis=0)
+        # np.random.shuffle(conb_x_t)
+        # X = conb_x_t[..., :-dis_target.shape[1]]
+        # dis_target = conb_x_t[..., -dis_target.shape[1]:]
+        
+        if gpus > 1:
+            loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
+        else:
+            loss = self.dis.train_on_batch([X], [dis_target], sample_weight=None)
+
         return loss
 
 
-    def train_gan(self):
-        for i in range(num_batch):
-            z = create_random_input(batch_size)
-            randomlabel = np.random.randint(0, class_num, batch_size)
-            class_info = np.array([self.label2seq(j) for j in randomlabel])
-            # comb_all = np.append(z, class_info, axis=-1)
-            # comb_all = np.append(comb_all, randomlabel, axis=0)
-            # np.random.shuffle(comb_all)
-            # z = comb_all(:, :z.shape[1])
-            # class_info = comb_all(:, z.shape[1]:z.shape[1]+class_info.shape[1])
-            # randomlabel = comb_all(:, -randomlabel.shape[1]:cd )
-            if gpus > 1:
-                loss = self.para_gan.train_on_batch([z, class_info, class_info], [self.gan_target], sample_weight=None)    
-            else:
-                loss = self.gan.train_on_batch([z, class_info, class_info], [self.gan_target], sample_weight=None)
+    def train_gan(self, ind):
+        z = create_random_input(len(ind))
+        gan_target = [[[1]]]*z.shape[0]
+        randomlabel = np.random.randint(0, class_num, z.shape[0])
+        class_info = np.array([self.label2seq(i) for i in randomlabel])
+        if gpus > 1:
+            loss = self.para_gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)    
+        else:
+            loss = self.gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)
+        
         return loss
 
 
     def train(self, epoch):
         # self.gan_target = np.ones((batch_size, 1, 1))
         # self.gan_target = np.ones((atch_size, 1, 1))
-        global Epoch
         for i in range(epoch):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
             # sys.stdout.flush()
@@ -274,6 +279,7 @@ class create_model():
                                     tf.Summary.Value(tag='loss_gan',
                                                     simple_value=loss_g), ])
             self.writer.add_summary(summary, i+1)
+            log(filepath, 'epoch:{0:10d}'.format(i+1))
             if (i + 1) % 100 == 0:
                 self.output_plot(i+1)
                 self.in_the_middle(i+1)
@@ -289,39 +295,12 @@ class create_model():
         idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
         for i in range(num_batch):
             for roll in range(nroll):
-                z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-                randomlabel = np.random.randint(0, class_num, z.shape[0])
-                class_info = np.array([self.label2seq(i) for i in randomlabel])
-                Z = np.concatenate((z, class_info), axis=2)
-                x_ = self.gene.predict([Z])
-                x_ = np.concatenate((x_, class_info), axis=2)
-                
-                r_label = np.array([self.label2seq(j) for j in self.t[idx[i*batch_size:(i+1)*batch_size]]])
-                y = np.concatenate((self.y[idx[i*batch_size:(i+1)*batch_size]], r_label), axis=2)
-                X = np.append(y, x_, axis=0)
-                
-                # target_z = np.zeros((z.shape[0], 1, 1))
-                # target_y = np.ones_like(target_z)
-                # dis_target = np.append(target_y, target_z, axis=0)
-                dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
-                if gpus > 1:
-                    loss_d = self.para_dis.train_on_batch([X], [np.array(dis_target)], sample_weight=None)
-                else:
-                    loss_d = self.dis.train_on_batch([X], [np.array(dis_target)], sample_weight=None)
-                
+                loss_d = self.train_dis(idx[i*batch_size:(i+1)*batch_size])
+
                 if roll == 0:
                     self.dis.save_weights('{0}/dis_param_unroll.hdf5'.format(filepath))
-            
+            loss_g = self.train_gan(idx[i*batch_size:(i+1)*batch_size])
             self.dis.load_weights('{0}/dis_param_unroll.hdf5'.format(filepath))
-            
-            z = create_random_input(len(idx[i*batch_size:(i+1)*batch_size]))
-            gan_target = [[[1]]]*z.shape[0]
-            randomlabel = np.random.randint(0, class_num, z.shape[0])
-            class_info = np.array([self.label2seq(i) for i in randomlabel])
-            if gpus > 1:
-                loss_g = self.para_gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)    
-            else:
-                loss_g = self.gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)
         
         return loss_d, loss_g
 
@@ -377,6 +356,7 @@ class create_model():
         onehot[..., int(label)] = 1
         return onehot
 
+
     def in_the_middle(e):
         with open('{0}/params/gene_param_epoch{1}.hdf5'.format(filepath, e), 'w') as f:
             self.gene.save_weights(f.name)
@@ -390,6 +370,7 @@ def main():
     print('\n----setup----\n')
     with open('{0}/condition.csv'.format(filepath), 'w') as f:
         writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(['args: {}'.format(vars(args))])
         writer.writerow(['dataset: {}'.format(datadir)])
         writer.writerow(['optmizer: {}'.format(opt)])
         writer.writerow(['cell: {}'.format(ncell)])
