@@ -9,6 +9,7 @@ import random as rn
 import tensorflow as tf
 import os, sys, json, itertools, time, argparse, csv
 from __init__ import log, write_slack, output_condition
+import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='vanila-lstm-gan', help='dir name')
@@ -19,8 +20,7 @@ parser.add_argument('--opt', type=str, default='adam', help='optimizer')
 parser.add_argument('--trainflag', type=str, default='0', help='training flag 0:vanila 1:unroll')
 parser.add_argument('--datadir', type=str, default='ECG200', help='dataset dir')
 parser.add_argument('--times', type=int, default=10, help='number of times')
-parser.add_argument('--numbatch', type=int, default=1, help='number of Batch')
-parser.add_argument('--batchsize', type=int, default=32, help='number of Batch')
+parser.add_argument('--batchsize', type=int, default=128, help='number of Batch')
 parser.add_argument('--gpus', type=int, default=1, help='number gpus')
 parser.add_argument('--gpuid', type=str, default='0', help='gpu id')
 parser.add_argument('--seed', type=int, default=1, help='select seed')
@@ -39,7 +39,6 @@ else:
     train_flag = 'unroll'
 datadir = args.datadir
 times = args.times
-# num_batch = args.numbatch
 gpus = args.gpus
 latent_vector = 1
 feature_count = 1
@@ -85,11 +84,16 @@ else:
     sys.exit()
 
 filedir = os.path.abspath(os.path.dirname(__file__))
-filepath = '{0}/{1}/{2}_split_No{3}'.format(filedir, dirs, datadir, iter)
-if os.path.exists(filepath) is False:
-    os.makedirs(filepath)
-    os.makedirs('{0}/figure'.format(filepath))
-    os.makedirs('{0}/params'.format(filepath))
+filepath = '{0}/{1}/{2}_split_No{3}/{4}'.format(filedir, dirs, datadir, iter, datetime.datetime.now().date())
+i = 0
+while True:
+    if os.path.exists(filepath + '-i{:d}'.format(i)) is False:
+        filepath = filepath + '-i{:d}'.format(i)
+        os.makedirs(filepath)
+        os.makedirs('{0}/figure'.format(filepath))
+        os.makedirs('{0}/params'.format(filepath))
+        break
+    i += 1
 
 
 def create_random_input(ndata):
@@ -120,12 +124,11 @@ class create_model():
         seq_length = self.y.shape[1]
         num_train = self.y.shape[0]
         # batch_size = int(num_train / num_batch)
-        # self.batch_size = int(args.batchsize * gpus)
+        self.batch_size = int(args.batchsize * gpus)
         # if num_train < self.batch_size:
         #     self.batch_size = num_train
         # num_batch = int(np.ceil(num_train / self.batch_size))
-        self.num_batch = args.numbatch
-
+        
         self.gene = self.build_generator()
         self.dis = self.build_discriminator()
         self.dis.compile(optimizer=opt, loss='binary_crossentropy')
@@ -234,11 +237,20 @@ class create_model():
         self.gan.load_weights('{0}/gan_param_init.hdf5'.format(self.filepath))
         # self.gan_target = np.ones((batch_size, 1, 1))
         # self.gan_target = np.ones((atch_size, 1, 1))
+        self.num_batch = int(np.ceil(self.y.shape[0] / self.batch_size))
 
-        for i in range(epoch):
+        for i, j in itertools.product(range(epoch), range(self.num_batch)):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
             # sys.stdout.flush()
-            loss_d, loss_g = self.unrolled_train()
+            if j == 0:
+                idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
+            for roll in range(nroll):
+                loss_d = self.train_dis(idx[j*self.batch_size:(j+1)*self.batch_size])
+                if roll == 0: 
+                    self.dis.save_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
+            
+            loss_g = self.train_gan(idx[j*self.batch_size:(j+1)*self.batch_size])
+            self.dis.load_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
             summary = tf.Summary(value=[
                                     tf.Summary.Value(tag='loss_dis',
                                                     simple_value=loss_d),
@@ -247,7 +259,7 @@ class create_model():
             self.writer.add_summary(summary, i+1)
             log(filepath, 'epoch:{0:10d}'.format(i+1))
 
-            if (i + 1) % 100 == 0:
+            if (i + 1) % 100 == 0 and j == 0:
                 self.output_plot(i+1)
                 self.in_the_middle(i+1)
 
@@ -257,24 +269,6 @@ class create_model():
             self.dis.save_weights(f.name)    
         with open('{0}/gan_param.hdf5'.format(self.savepath), 'w') as f:
             self.gan.save_weights(f.name)
-
-
-    def unrolled_train(self):
-        # if self.y.shape[0] < self.batch_size:
-        #     self.batch_size = self.y.shape[0]
-        # self.num_batch = int(np.ceil(self.y.shape[0] / self.batch_size))
-        self.batch_size = int(np.ceil(self.y.shape[0] / self.num_batch))
-        idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
-        for i in range(self.num_batch):
-            for roll in range(nroll):
-                loss_d = self.train_dis(idx[i*self.batch_size:(i+1)*self.batch_size])
-                if roll == 0: 
-                    self.dis.save_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
-            
-            loss_g = self.train_gan(idx[i*self.batch_size:(i+1)*self.batch_size])
-            self.dis.load_weights('{0}/dis_param_unroll.hdf5'.format(self.savepath))
-
-        return loss_d, loss_g
 
 
     def save_model(self):
