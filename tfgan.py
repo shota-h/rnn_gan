@@ -27,6 +27,7 @@ parser.add_argument('--model_flag', type=str, default='condition', help='model t
 parser.add_argument('--seed', type=int, default=1, help='select seed')
 parser.add_argument('--iter', type=int, default=0, help='select dataset')
 parser.add_argument('--rate', type=float, default=1, help='select dataset')
+parser.add_argument('--mask_pos', type=int, default=1, help='select dataset')
 
 args = parser.parse_args()
 dirs = args.dir
@@ -60,13 +61,14 @@ np.random.seed(SEED)
 rn.seed(SEED)
 tf.set_random_seed(SEED)
 os.environ['PYTHONHASHSEED'] = '0'
+mask_pos = args.mask_pos
 
 if gpus > 1:
     config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0, 1'), device_count={'GPU':gpus})
 else:
     config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list=visible_device), device_count={'GPU':1})
 
-from keras.layers import Input, Dense, Activation, pooling, Reshape, Masking, Lambda, RepeatVector
+from keras.layers import Input, Dense, Activation, pooling, Reshape, Masking, Lambda, RepeatVector, Multiply
 from keras.models import Sequential, Model
 from keras.layers.recurrent import LSTM
 from keras.layers.merge import concatenate
@@ -114,6 +116,7 @@ class create_model():
         self.y, self.t = self.load_data()
         self.y = self.y[..., None]
         global class_num
+        self.mask_pos = mask_pos
         class_num = len(np.unique(self.t))
         for ind, label in enumerate(np.unique(self.t)):
             self.t[self.t == label]  = ind
@@ -216,6 +219,7 @@ class create_model():
 
         # with tf.device('/cpu:0'):
         input = Input(shape = (seq_length, feature_count + class_num))
+        mask_mat = Input(shape=(seq_length, 2))
         f_layer = Lambda(lambda x: x[..., 0], output_shape=(seq_length, feature_count))(input)
         c_layer = Lambda(lambda x: x[..., 1:], output_shape=(seq_length, class_num,))(input)
         fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(len_src,))(f_layer)
@@ -223,43 +227,48 @@ class create_model():
         fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(len_src,))(f_layer)
         fft_layer_i = Reshape((seq_length, 1))(fft_layer_i)
         fft_layer = concatenate([fft_layer_i, fft_layer_r], axis=-1)
+        fft_layer = Multiply()([fft_layer, mask_mat])
         fft_layer = concatenate([fft_layer, c_layer], axis=-1)
         fft_layer = Reshape((1, -1))(fft_layer)
-        model = Dense(units=ncell, activation='relu')(fft_layer)
+        model = Dense(units=ncell*8, activation='relu')(fft_layer)
         for i in range(nlayer - 1):
-            model = Dense(units=ncell, activation='relu')(model)
+            model = Dense(units=ncell*8, activation='relu')(model)
         model = Dense(units=1, activation='sigmoid')(model)
-        return Model(inputs=input, outputs=model))
+        return Model(inputs=[input, mask_mat], outputs=model)
 
 
     def build_discriminator(self):
+        mask_mat = Input(shape=(seq_length, 2))
         input = Input(shape=(seq_length, feature_count+class_num))
         valid_t = self.dis_t(input)
-        valid_f = self.dis_f(input)
+        valid_f = self.dis_f([input, mask_mat])
         valid_t = Lambda(lambda x: x * sf_rate, output_shape=(1, 1,))(valid_t)
         valid_f = Lambda(lambda x: x * (1-sf_rate), output_shape=(1, 1,))(valid_f)
         output = Lambda(lambda x: x[0] + x[1], output_shape=(1, 1,))([valid_t, valid_f])
-        return Model(inputs=input, outputs=output)
+        return Model(inputs=[input, mask_mat], outputs=output)
 
 
     def build_gan(self):
         # with tf.device('/cpu:0'):
         z = Input(shape=(seq_length, feature_count))
+        mask_mat = Input(shape=(seq_length, 2))
         class_info_gene = Input(shape=(seq_length, class_num))
         class_info_dis = Input(shape=(seq_length, class_num))
         input_comb_gene = concatenate([z, class_info_gene], axis=-1)
         
         signal = self.gene(input_comb_gene)
         input_comb_dis = concatenate([signal, class_info_dis], axis=-1)
+        # input_comb_dis = concatenate([input_comb_dis, mask_mat], axis=-1)
         self.dis.trainable = False
+        print(input_comb_dis)
         # self.dis_f.trainable = False
-        valid = self.dis(input_comb_dis)
+        valid = self.dis([input_comb_dis, mask_mat])
         # valid_f = self.dis_f(input_comb_dis)
         # valid_t = Lambda(lambda x: x * (1-sf_rate), output_shape=(1, 1,))(valid_t)
         # valid_f = Lambda(lambda x: x * sf_rate, output_shape=(1, 1,))(valid_f)
         # output = Lambda(lambda x: x[0] + x[1], output_shape=(1, 1,))([valid_t, ])
         # Add()([valid_f, valid_t])
-        return Model(inputs=[z, class_info_gene, class_info_dis], outputs=valid)
+        return Model(inputs=[z, class_info_gene, class_info_dis, mask_mat], outputs=valid)
 
 
     def train_dis(self, ind):
@@ -273,13 +282,15 @@ class create_model():
         r_label = np.array([self.label2seq(j) for j in self.t[ind]])
         y = np.concatenate((self.y[ind], r_label), axis=2)
         X = np.append(y, x_, axis=0)
+        mask_mat = np.ones((X.shape[0], seq_length, 2))
+        mask_mat[:, self.mask_pos:] = 0
+        # X = np.append(X, mask_mat, axis=-1)
         dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
         dis_target = np.asarray(dis_target)
-        
         if gpus > 1:
-            loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
+            loss = self.para_dis.train_on_batch([X, mask_mat], [dis_target], sample_weight=None)
         else:
-            loss = self.dis.train_on_batch([X], [dis_target], sample_weight=None)
+            loss = self.dis.train_on_batch([X, mask_mat], [dis_target], sample_weight=None)
 
         return loss
 
@@ -289,10 +300,12 @@ class create_model():
         gan_target = [[[1]]]*z.shape[0]
         randomlabel = np.random.randint(0, class_num, z.shape[0])
         class_info = np.array([self.label2seq(i) for i in randomlabel])
+        mask_mat = np.ones((z.shape[0], seq_length, 2))
+        mask_mat[:, self.mask_pos:] = 0
         if gpus > 1:
-            loss = self.para_gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)    
+            loss = self.para_gan.train_on_batch([z, class_info, class_info, mask_mat], [np.array(gan_target)], sample_weight=None)    
         else:
-            loss = self.gan.train_on_batch([z, class_info, class_info], [np.array(gan_target)], sample_weight=None)
+            loss = self.gan.train_on_batch([z, class_info, class_info, mask_mat], [np.array(gan_target)], sample_weight=None)
         
         return loss
 
@@ -303,6 +316,10 @@ class create_model():
         for i, j in itertools.product(range(epoch), range(self.num_batch)):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
             # sys.stdout.flush()
+            if i % 200 == 0 and j == 0:
+                self.mask_pos += 1
+            if self.mask_pos > seq_length: self.mask_pos = seq_length
+
             if j == 0:
                 idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
             for roll in range(nroll):
