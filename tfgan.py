@@ -27,7 +27,7 @@ parser.add_argument('--model_flag', type=str, default='condition', help='model t
 parser.add_argument('--seed', type=int, default=1, help='select seed')
 parser.add_argument('--iter', type=int, default=0, help='select dataset')
 parser.add_argument('--rate', type=float, default=1, help='select dataset')
-parser.add_argument('--mask_pos', type=int, default=1, help='select dataset')
+parser.add_argument('--e_step', type=int, default=100, help='add feature step')
 
 args = parser.parse_args()
 dirs = args.dir
@@ -56,12 +56,13 @@ SEED = args.seed
 iter = args.iter
 sf_rate = args.rate
 model_flag = args.model_flag
+e_step = args.e_step
 # set seed
 np.random.seed(SEED)
 rn.seed(SEED)
 tf.set_random_seed(SEED)
 os.environ['PYTHONHASHSEED'] = '0'
-mask_pos = args.mask_pos
+
 
 if gpus > 1:
     config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='0, 1'), device_count={'GPU':gpus})
@@ -116,7 +117,6 @@ class create_model():
         self.y, self.t = self.load_data()
         self.y = self.y[..., None]
         global class_num
-        self.mask_pos = mask_pos
         class_num = len(np.unique(self.t))
         for ind, label in enumerate(np.unique(self.t)):
             self.t[self.t == label]  = ind
@@ -127,9 +127,11 @@ class create_model():
             for i in range(class_num):
                 writer.writerow(['class{0}: {1}'.format(i+1, np.sum(self.t == i))])
 
-        global seq_length, num_train, batch_size, num_batch
+        global seq_length, half_length, num_train, batch_size, num_batch
         seq_length = self.y.shape[1]
+        half_length = int((seq_length+1)/2)
         num_train = self.y.shape[0]
+        self.mask = np.zeros((1, half_length, 2))
         # batch_size = int(num_train / num_batch)
         self.batch_size = int(args.batchsize * gpus)
         self.num_batch = int(np.ceil(num_train / self.batch_size))
@@ -219,15 +221,22 @@ class create_model():
 
         # with tf.device('/cpu:0'):
         input = Input(shape = (seq_length, feature_count + class_num))
-        mask_mat = Input(shape=(seq_length, 2))
+        mask_mat = Input(shape=(half_length, 2))
         f_layer = Lambda(lambda x: x[..., 0], output_shape=(seq_length, feature_count))(input)
-        c_layer = Lambda(lambda x: x[..., 1:], output_shape=(seq_length, class_num,))(input)
+        c_layer = Lambda(lambda x: x[...,:half_length, 1:], output_shape=(half_length, class_num,))(input)
+        print(c_layer)
         fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(len_src,))(f_layer)
-        fft_layer_r = Reshape((seq_length, 1))(fft_layer_r)
         fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(len_src,))(f_layer)
-        fft_layer_i = Reshape((seq_length, 1))(fft_layer_i)
+        fft_layer_r = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_r)
+        fft_layer_i = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_i)
+        # c_layer = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(c_layer)
+        # print(c_layer)
+        fft_layer_r = Reshape((half_length, 1))(fft_layer_r)
+        fft_layer_i = Reshape((half_length, 1))(fft_layer_i)
         fft_layer = concatenate([fft_layer_i, fft_layer_r], axis=-1)
         fft_layer = Multiply()([fft_layer, mask_mat])
+        print(c_layer)
+        print(fft_layer)
         fft_layer = concatenate([fft_layer, c_layer], axis=-1)
         fft_layer = Reshape((1, -1))(fft_layer)
         model = Dense(units=ncell*8, activation='relu')(fft_layer)
@@ -238,7 +247,7 @@ class create_model():
 
 
     def build_discriminator(self):
-        mask_mat = Input(shape=(seq_length, 2))
+        mask_mat = Input(shape=(half_length, 2))
         input = Input(shape=(seq_length, feature_count+class_num))
         valid_t = self.dis_t(input)
         valid_f = self.dis_f([input, mask_mat])
@@ -251,7 +260,7 @@ class create_model():
     def build_gan(self):
         # with tf.device('/cpu:0'):
         z = Input(shape=(seq_length, feature_count))
-        mask_mat = Input(shape=(seq_length, 2))
+        mask_mat = Input(shape=(half_length, 2))
         class_info_gene = Input(shape=(seq_length, class_num))
         class_info_dis = Input(shape=(seq_length, class_num))
         input_comb_gene = concatenate([z, class_info_gene], axis=-1)
@@ -282,11 +291,10 @@ class create_model():
         r_label = np.array([self.label2seq(j) for j in self.t[ind]])
         y = np.concatenate((self.y[ind], r_label), axis=2)
         X = np.append(y, x_, axis=0)
-        mask_mat = np.ones((X.shape[0], seq_length, 2))
-        mask_mat[:, self.mask_pos:] = 0
         # X = np.append(X, mask_mat, axis=-1)
         dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
         dis_target = np.asarray(dis_target)
+        mask_mat = np.tile(self.mask, (X.shape[0], 1, 1))
         if gpus > 1:
             loss = self.para_dis.train_on_batch([X, mask_mat], [dis_target], sample_weight=None)
         else:
@@ -300,8 +308,7 @@ class create_model():
         gan_target = [[[1]]]*z.shape[0]
         randomlabel = np.random.randint(0, class_num, z.shape[0])
         class_info = np.array([self.label2seq(i) for i in randomlabel])
-        mask_mat = np.ones((z.shape[0], seq_length, 2))
-        mask_mat[:, self.mask_pos:] = 0
+        mask_mat = np.tile(self.mask, (z.shape[0], 1, 1))
         if gpus > 1:
             loss = self.para_gan.train_on_batch([z, class_info, class_info, mask_mat], [np.array(gan_target)], sample_weight=None)    
         else:
@@ -313,13 +320,15 @@ class create_model():
     def train(self, epoch):
         # self.gan_target = np.ones((batch_size, 1, 1))
         # self.gan_target = np.ones((atch_size, 1, 1))
+        p = 1
+        self.mask[0, 0] = 1
         for i, j in itertools.product(range(epoch), range(self.num_batch)):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
-            # sys.stdout.flush()
-            if i % 200 == 0 and j == 0:
-                self.mask_pos += 1
-            if self.mask_pos > seq_length: self.mask_pos = seq_length
-
+            # sys.stdout.flush(
+            if (i+1) % e_step == 0 and j == 0:
+                self.mask[:, :p+1] = 1
+                p += 1
+                print(p)
             if j == 0:
                 idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
             for roll in range(nroll):
