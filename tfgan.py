@@ -213,30 +213,27 @@ class create_model():
 
     def build_freq_discriminator(self):
         len_src = self.y.shape[1]
-        t = np.arange(0, 1, 1/len_src)
-        omega = 2*np.pi*np.arange(0, len_src)
-        t = np.ones((t.shape[0], omega.shape[0]))*t
-        cos_mat = tf.constant(np.cos(omega*t.T), dtype=np.float32)
-        sin_mat = tf.constant(np.sin(omega*t.T), dtype=np.float32)
+        t = np.arange(0, 1, 1/seq_length)[..., None]
+        omega = 2*np.pi*np.arange(0, half_length)[..., None]
+        t = np.tile(t, (1, half_length))
+        cos_mat = tf.constant((np.cos(omega*t.T)).T, dtype=np.float32)
+        sin_mat = tf.constant((np.sin(omega*t.T)).T, dtype=np.float32)
 
         # with tf.device('/cpu:0'):
         input = Input(shape = (seq_length, feature_count + class_num))
         mask_mat = Input(shape=(half_length, 2))
         f_layer = Lambda(lambda x: x[..., 0], output_shape=(seq_length, feature_count))(input)
         c_layer = Lambda(lambda x: x[...,:half_length, 1:], output_shape=(half_length, class_num,))(input)
-        print(c_layer)
-        fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(len_src,))(f_layer)
-        fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(len_src,))(f_layer)
-        fft_layer_r = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_r)
-        fft_layer_i = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_i)
+        fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(half_length,))(f_layer)
+        fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(half_length,))(f_layer)
+        # fft_layer_r = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_r)
+        # fft_layer_i = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_i)
         # c_layer = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(c_layer)
         # print(c_layer)
         fft_layer_r = Reshape((half_length, 1))(fft_layer_r)
         fft_layer_i = Reshape((half_length, 1))(fft_layer_i)
         fft_layer = concatenate([fft_layer_i, fft_layer_r], axis=-1)
         fft_layer = Multiply()([fft_layer, mask_mat])
-        print(c_layer)
-        print(fft_layer)
         fft_layer = concatenate([fft_layer, c_layer], axis=-1)
         fft_layer = Reshape((1, -1))(fft_layer)
         model = Dense(units=ncell*8, activation='relu')(fft_layer)
@@ -269,7 +266,6 @@ class create_model():
         input_comb_dis = concatenate([signal, class_info_dis], axis=-1)
         # input_comb_dis = concatenate([input_comb_dis, mask_mat], axis=-1)
         self.dis.trainable = False
-        print(input_comb_dis)
         # self.dis_f.trainable = False
         valid = self.dis([input_comb_dis, mask_mat])
         # valid_f = self.dis_f(input_comb_dis)
@@ -328,7 +324,6 @@ class create_model():
             if (i+1) % e_step == 0 and j == 0:
                 self.mask[:, :p+1] = 1
                 p += 1
-                print(p)
             if j == 0:
                 idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
             for roll in range(nroll):
