@@ -107,8 +107,37 @@ def create_random_input(ndata):
     return np.random.uniform(low=-1, high=1, size=[ndata, seq_length, latent_vector])
 
 
+def wasserstein_loss(y_true, y_pred):
+    """Calculates the Wasserstein loss for a sample batch.
+    The Wasserstein loss function is very simple to calculate. In a standard GAN, the discriminator
+    has a sigmoid output, representing the probability that samples are real or generated. In Wasserstein
+    GANs, however, the output is linear with no activation function! Instead of being constrained to [0, 1],
+    the discriminator wants to make the distance between its output for real and generated samples as large as possible.
+    The most natural way to achieve this is to label generated samples -1 and real samples 1, instead of the
+    0 and 1 used in normal GANs, so that multiplying the outputs by the labels will give you the loss immediately.
+    Note that the nature of this loss means that it can be (and frequently will be) less than 0."""
+    return K.mean(y_true * y_pred)
+
+
 def mean(y_true, y_pred):
     return -tf.reduce_mean(y_pred)
+
+
+def fourier_trans_layer(inputs, sequence_length=0):
+    len_src = sequence_length
+    half_length = int((len_src + 1)/2)
+    t = np.arange(0, 1, 1/len_src)[..., None]
+    omega = 2*np.pi*np.arange(0, half_length)[..., None]
+    t = np.tile(t, (1, half_length))
+    cos_mat = tf.constant((np.cos(omega*t.T)).T, dtype=np.float32)
+    sin_mat = tf.constant((np.sin(omega*t.T)).T, dtype=np.float32)
+
+    fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(half_length,), name='compute_real_ft')(inputs)
+    fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(half_length,), name='compute_imag_ft')(inputs)
+    fft_layer_r = Reshape((half_length, 1))(fft_layer_r)
+    fft_layer_i = Reshape((half_length, 1))(fft_layer_i)
+    fft_layer = concatenate([fft_layer_i, fft_layer_r], axis=-1)
+    return fft_layer
 
 
 class create_model():
@@ -139,20 +168,11 @@ class create_model():
         self.gene = self.build_generator()
         self.dis_t = self.build_time_discriminator()
         self.dis_f = self.build_freq_discriminator()
-        self.dis_t.summary()
-        self.dis_f.summary()
         self.dis = self.build_discriminator()
         self.dis.compile(optimizer=opt, loss='binary_crossentropy')
         # self.dis_f.compile(optimizer=opt, loss='binary_crossentropy')
         self.gan = self.build_gan()
         self.gan.compile(optimizer=opt, loss='binary_crossentropy')
-        print('Generator')
-        self.gene.summary()
-        print('Discriminator')
-        self.dis.summary()
-        print('GAN')
-        self.gan.summary()
-        # self.save_model()
 
         if gpus > 1:
             self.para_dis = multi_gpu_model(self.dis, gpus)
@@ -190,9 +210,7 @@ class create_model():
         model = LSTM(units=ncell, use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(input)
         for i in range(nlayer - 1):
             model = LSTM(units=ncell, use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(model)
-        # model = LSTM(units=ncell, use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(model)
-        
-        # model = LSTM(units=1, activation='sigmoid', use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(model)
+
         model = Dense(units=feature_count, activation='sigmoid')(model)
         return Model(inputs=input, outputs=model)
 
@@ -203,9 +221,7 @@ class create_model():
         model =LSTM(units = ncell, use_bias=True, unit_forget_bias = True, return_sequences = True, recurrent_regularizer = l2(0.01))(input)
         for i in range(nlayer - 1):
             model = LSTM(units = ncell, use_bias=True, unit_forget_bias = True, return_sequences = True, recurrent_regularizer = l2(0.01))(model)
-        # model = LSTM(units = ncell, use_bias=True, unit_forget_bias = True, return_sequences = True, recurrent_regularizer = l2(0.01))(model)
-        
-        # model = LSTM(units = 1, use_bias=True, activation='sigmoid', unit_forget_bias = True, return_sequences = True, recurrent_regularizer = l2(0.01))(model)
+
         model = Dense(units=1, activation='sigmoid')(model)
         model = pooling.AveragePooling1D(pool_size = seq_length, strides = None)(model)
         return Model(inputs=input, outputs=model)
@@ -224,21 +240,17 @@ class create_model():
         mask_mat = Input(shape=(half_length, 2))
         f_layer = Lambda(lambda x: x[..., 0], output_shape=(seq_length, feature_count))(input)
         c_layer = Lambda(lambda x: x[...,:half_length, 1:], output_shape=(half_length, class_num,))(input)
-        fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(half_length,))(f_layer)
-        fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(half_length,))(f_layer)
-        # fft_layer_r = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_r)
-        # fft_layer_i = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(fft_layer_i)
-        # c_layer = Lambda(lambda x: x[:, :half_length], output_shape=(half_length,))(c_layer)
-        # print(c_layer)
+        fft_layer_r = Lambda(lambda x: K.dot(x, cos_mat), output_shape=(half_length,), name='compute_real_ft')(f_layer)
+        fft_layer_i = Lambda(lambda x: K.dot(x, sin_mat), output_shape=(half_length,), name='compute_imag_ft')(f_layer)
         fft_layer_r = Reshape((half_length, 1))(fft_layer_r)
         fft_layer_i = Reshape((half_length, 1))(fft_layer_i)
         fft_layer = concatenate([fft_layer_i, fft_layer_r], axis=-1)
-        fft_layer = Multiply()([fft_layer, mask_mat])
+        fft_layer = Multiply(name='mask_layer')([fft_layer, mask_mat])
         fft_layer = concatenate([fft_layer, c_layer], axis=-1)
         fft_layer = Reshape((1, -1))(fft_layer)
-        model = Dense(units=ncell*8, activation='relu')(fft_layer)
+        model = Dense(units=ncell, activation='relu')(fft_layer)
         for i in range(nlayer - 1):
-            model = Dense(units=ncell*8, activation='relu')(model)
+            model = Dense(units=ncell, activation='relu')(model)
         model = Dense(units=1, activation='sigmoid')(model)
         return Model(inputs=[input, mask_mat], outputs=model)
 
@@ -264,15 +276,9 @@ class create_model():
         
         signal = self.gene(input_comb_gene)
         input_comb_dis = concatenate([signal, class_info_dis], axis=-1)
-        # input_comb_dis = concatenate([input_comb_dis, mask_mat], axis=-1)
         self.dis.trainable = False
         # self.dis_f.trainable = False
         valid = self.dis([input_comb_dis, mask_mat])
-        # valid_f = self.dis_f(input_comb_dis)
-        # valid_t = Lambda(lambda x: x * (1-sf_rate), output_shape=(1, 1,))(valid_t)
-        # valid_f = Lambda(lambda x: x * sf_rate, output_shape=(1, 1,))(valid_f)
-        # output = Lambda(lambda x: x[0] + x[1], output_shape=(1, 1,))([valid_t, ])
-        # Add()([valid_f, valid_t])
         return Model(inputs=[z, class_info_gene, class_info_dis, mask_mat], outputs=valid)
 
 
@@ -287,7 +293,6 @@ class create_model():
         r_label = np.array([self.label2seq(j) for j in self.t[ind]])
         y = np.concatenate((self.y[ind], r_label), axis=2)
         X = np.append(y, x_, axis=0)
-        # X = np.append(X, mask_mat, axis=-1)
         dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
         dis_target = np.asarray(dis_target)
         mask_mat = np.tile(self.mask, (X.shape[0], 1, 1))
@@ -314,15 +319,13 @@ class create_model():
 
 
     def train(self, epoch):
-        # self.gan_target = np.ones((batch_size, 1, 1))
-        # self.gan_target = np.ones((atch_size, 1, 1))
-        p = 1
-        self.mask[0, 0] = 1
+        p = 2
+        self.mask[:,0] = 1
         for i, j in itertools.product(range(epoch), range(self.num_batch)):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
             # sys.stdout.flush(
             if (i+1) % e_step == 0 and j == 0:
-                self.mask[:, :p+1] = 1
+                self.mask[:, :p] = 1
                 p += 1
             if j == 0:
                 idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
@@ -333,17 +336,17 @@ class create_model():
             loss_g = self.train_gan(idx[j*self.batch_size:(j+1)*self.batch_size])
             self.dis.load_weights('{0}/dis_param_unroll.hdf5'.format(filepath))
 
-            summary = tf.Summary(value=[
-                                    tf.Summary.Value(tag='loss_dis',
-                                                    simple_value=loss_d),
-                                    tf.Summary.Value(tag='loss_gan',
-                                                    simple_value=loss_g), ])
-            self.writer.add_summary(summary, i+1)
-            if j == 0:
+            if j == self.num_batch - 1:
                 log(filepath, 'epoch:{0:10d}'.format(i+1))
-            if (i + 1) % 10 == 0 and j == 0:
-                self.output_plot(i+1)
-                self.in_the_middle(i+1)
+                summary = tf.Summary(value=[
+                                        tf.Summary.Value(tag='loss_dis',
+                                                        simple_value=loss_d),
+                                        tf.Summary.Value(tag='loss_gan',
+                                                        simple_value=loss_g), ])
+                self.writer.add_summary(summary, i+1)
+                if (i + 1) % 10 == 0:
+                    self.output_plot(i+1)
+                    self.in_the_middle(i+1)
 
         with open('{0}/gene_param.hdf5'.format(filepath), 'w') as f:
             self.gene.save_weights(f.name)    
@@ -368,7 +371,6 @@ class create_model():
     def output_plot(self, num):
         j = np.random.randint(0, self.y.shape[0], 6)
         for c in range(class_num):
-        # z = create_random_input(6)
             fixlabel = [c]*12
             class_info = np.array([self.label2seq(j) for j in fixlabel])
             Z = np.concatenate((self.fix_z, class_info), axis=2)
@@ -435,5 +437,33 @@ def main():
     write_slack(__file__, 'program finish dataset: {0}, iter: {1}'.format(datadir, iter))
 
 
+def test():
+    output_condition(filepath, args)
+    print('\n----setup----\n')
+    start = time.time()
+    with tf.Session(config=config) as sess:
+        writer = tf.summary.FileWriter('{0}'.format(filepath), sess.graph)
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+
+        model = create_model(writer)
+        model.writer = writer
+        r_label = np.array([model.label2seq(j) for j in model.t[:10]])
+        y = np.concatenate((model.y[:10], r_label), axis=2)
+        model.mask[:] = 1
+        model.mask[:,10:,:] = 0
+        mask_mat = np.tile(model.mask, (y.shape[0], 1, 1))
+        hidden_layer = model.dis_f.get_layer('compute_imag_ft')
+        test_model = Model(inputs=[model.dis_f.get_layer('input_3').input, model.dis_f.get_layer('input_4').input], outputs=[model.dis_f.get_layer('compute_imag_ft').output, model.dis_f.get_layer('mask_layer').output])
+        o = test_model.predict([y, mask_mat])
+        test_model.summary()
+        print(o[1].shape)
+        plt.plot(np.sqrt(o[1][:, :, 0]**2+o[1][:,:,1]**2).T)
+        plt.savefig('test.png'  )
+        print('\n----train step----\n')
+
+    K.clear_session()
+
 if __name__ == '__main__':
     main()
+    # test()
