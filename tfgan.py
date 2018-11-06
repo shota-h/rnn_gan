@@ -28,6 +28,7 @@ parser.add_argument('--seed', type=int, default=1, help='select seed')
 parser.add_argument('--iter', type=int, default=0, help='select dataset')
 parser.add_argument('--rate', type=float, default=1, help='select dataset')
 parser.add_argument('--e_step', type=int, default=100, help='add feature step')
+parser.add_argument('--start_mask', type=int, default=1, help='add feature step')
 
 args = parser.parse_args()
 dirs = args.dir
@@ -319,14 +320,14 @@ class create_model():
 
 
     def train(self, epoch):
-        p = 2
-        self.mask[:,0] = 1
+        p = args.start_mask
+        self.mask[:,:p] = 1
         for i, j in itertools.product(range(epoch), range(self.num_batch)):
             # sys.stdout.write('\repoch: {0:d}'.format(i+1))
             # sys.stdout.flush(
             if (i+1) % e_step == 0 and j == 0:
-                self.mask[:, :p] = 1
                 p += 1
+                self.mask[:, :p] = 1
             if j == 0:
                 idx = np.random.choice(self.y.shape[0], self.y.shape[0], replace=False)
             for roll in range(nroll):
@@ -428,6 +429,7 @@ def main():
         model = create_model(writer)
         model.writer = writer
         print('\n----train step----\n')
+
         model.train(epoch)
         model.make_data()
 
