@@ -4,6 +4,9 @@ import json
 import requests
 import csv
 
+
+
+
 def re_label(src, c_label):
     for i, c in enumerate(c_label):
         src[src[..., -1] == c, -1] = i
@@ -76,3 +79,26 @@ def gauss_dist_plot(x1, x2, path, name, num_f, num=10000):
 
     plt.savefig('{0}/figure/{1}.png'.format(path, name))
     plt.close()
+
+def gauss_kernel(src1, src2, sigma=1.0):
+    src_norm = np.linalg.norm(src1 - src2)**2
+    return k = np.exp(-src_norm/sigma**2)
+
+
+def expected_gauss_kernel(src1, src2):
+    sum_k = 0
+    num_src = min(src1.shape[0], src2.shape[0])
+    for i, j in itertools.combinations(range(num_src), 2):
+        gauss_kernel(src1[i], src2[j])
+        sum_k += k
+    return sum_k / len(list(itertools.combinations(num_src), 2))
+
+
+def mmd(src1, src2):
+    assert src1.ndim == src2.ndim, print('src1 and src2 is same dimension')
+    assert src1.shape[-1] == src2.shape[-1], print('src1 and src2 is same features')
+    
+    k1 = gauss_kernel(src1, src1)
+    k2 = gauss_kernel(src1, src2)
+    k3 = gauss_kernel(src2, src2)
+    return k1 - 2*k2 + k3
