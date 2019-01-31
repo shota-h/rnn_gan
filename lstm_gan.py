@@ -9,6 +9,7 @@ import random as rn
 import tensorflow as tf
 import os, sys, json, itertools, time, argparse, csv
 from __init__ import re_label, log, write_slack, output_condition
+import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='lstm-gan', help='dir name')
@@ -178,7 +179,7 @@ class create_model():
         for i in range(nlayer - 1):
             model = LSTM(units=ncell, use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(model)
         # model = LSTM(units=ncell, use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(model)
-        
+
         # model = LSTM(units=1, activation='sigmoid', use_bias=True, unit_forget_bias=True, return_sequences=True, recurrent_regularizer=l2(0.01))(model)
         model = Dense(units=feature_count, activation='sigmoid')(model)
         return Model(inputs=input, outputs=model)
@@ -220,13 +221,13 @@ class create_model():
         Z = np.concatenate((z, class_info), axis=2)
         x_ = self.gene.predict([Z])
         x_ = np.concatenate((x_, class_info), axis=2)
-        
+
         r_label = np.array([self.label2seq(j) for j in self.t[ind]])
         y = np.concatenate((self.y[ind], r_label), axis=2)
         X = np.append(y, x_, axis=0)
         dis_target = [[[1]]]*z.shape[0] + [[[0]]]*z.shape[0]
         dis_target = np.asarray(dis_target)
-        
+
         if gpus > 1:
             loss = self.para_dis.train_on_batch([X], [dis_target], sample_weight=None)
         else:
