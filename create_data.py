@@ -32,9 +32,8 @@ times = args.time
 mval = args.middle
 flag = args.flag
 
-
 filedir = os.path.abspath(os.path.dirname(__file__))
-loadpath = '{0}/{1}/{2}_split_No0'.format(filedir, dirs, datadir)
+loadpath = '{0}/{1}/backup1007/{2}_split_No0'.format(filedir, dirs, datadir)
 savepath = '{0}/CCA/{1}'.format(filedir, datadir)
 
 if os.path.isdir(savepath) is False:
@@ -44,6 +43,16 @@ config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_thr
 
 session = tf.Session(config=config)
 K.set_session(session)
+
+def test():
+    with tf.Session(config=config) as sess:
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        with open('{0}/model_gene.json'.format(loadpath, ),'r') as f:
+            model = json.load(f)
+            model = model_from_json(model)
+            model.summary()
+
 
 def create_random_input(num):
     random_data = np.random.uniform(low=-1, high=1,size=[num, seq_length, feature_count])
@@ -97,7 +106,11 @@ def morphing():
 
 def label_morphing():
     y = np.load('{0}/dataset/{1}/train0.npy'.format(filedir, datadir))
-    for i, c in enumerate(np.unique(y[..., -1])):
+    if datadir == 'ECG200':
+        class_info = np.unique(y[..., -1])[::-1]
+    else:
+        class_info = np.unique(y[..., -1])
+    for i, c in enumerate(class_info):
         y[y[..., -1] == c, -1] = i
     global seq_length, feature_count
     seq_length = y.shape[1] -1
@@ -329,10 +342,12 @@ def load_gan():
 
 
 def main():
+    # test()
+    # return
     if flag == 'cca':
-        make_cca_data_walk()
-        return
         make_cca_data()
+        return
+        make_cca_data_walk()
     
     elif flag == 'da':         
         make_augmentation_data_middle_label()

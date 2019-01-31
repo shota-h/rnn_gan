@@ -42,6 +42,7 @@ config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_thr
 if os.path.exists(filepath) is False:
     os.makedirs(filepath)
 
+
 def trans_data(src, z):
     buff = np.copy(src)
     diff_src = [buff[:, i+1] - buff[:,i] for i in range(1, buff.shape[1]-1)]
@@ -54,10 +55,16 @@ def trans_data(src, z):
         uppeak_ind = np.argmax(src[:, :lim], axis=1)
         downpeak_ind = np.argmin(src[:,lim:], axis=1)+ lim
     else:
-        uppeak_src = np.max(src, axis=1)
-        downpeak_src = np.min(src, axis=1)
-        uppeak_ind = np.argmax(src, axis=1)
-        downpeak_ind = np.argmin(src, axis=1)
+        lim = 50
+        diff_src = np.asarray(diff_src).T
+        uppeak_src = np.max(src[:, lim:], axis=1)
+        downpeak_src = np.min(src[:, :lim], axis=1)
+        uppeak_ind = np.argmax(src[:, lim:], axis=1) + lim
+        downpeak_ind = np.argmin(src[:,:lim], axis=1)
+        # uppeak_src = np.max(src, axis=1)
+        # downpeak_src = np.min(src, axis=1)
+        # uppeak_ind = np.argmax(src, axis=1)
+        # downpeak_ind = np.argmin(src, axis=1)
     # plt.plot(downpeak_ind, 'blue')
     # plt.plot(uppeak_ind, 'red')
     # plt.savefig('{0}/test.png'.format(filepath))
@@ -103,7 +110,7 @@ def disp_subplot(src, n=[1,1], name=None, axis_fix=False, ylim=[None, None],plot
     assert ny * nx <= len(src), 'nx and ny is small'
     src = src[:int(nx*ny)]
     # label = ['max', 'min', 'p2p', 'mean', 'meanfreq']
-    label = ['max', 'max ind', 'min', 'min ind', 'p2p', 'mean', 'meanfreq']
+    label = ['max', 'max pos', 'min', 'min pos', 'p2p', 'mean', 'meanfreq']
     if src.shape[1] != len(label):
         label = np.arange(0, src.shape[1], 1)
     # fig = plt.figure(figsize=(12,9))
@@ -121,7 +128,9 @@ def disp_subplot(src, n=[1,1], name=None, axis_fix=False, ylim=[None, None],plot
         if plot_type == 'line':
             ax.plot(j, linestyle='-', marker='.', color='k')
             if i+1 == ny*nx:
-                ax.set_xticklabels(np.arange(len(j)))
+                pass
+                # ax.set_xticklabels(np.arange(len(j)))
+                ax.set_xlabel('Number of data point', fontsize=24)
             else:
                 ax.set_xticklabels([])
         elif plot_type == 'bar':
@@ -192,9 +201,11 @@ def calc_cca(x1, x2, low_corr=0):
 
     if n_comp == x1.shape[1]:
         chi_test(corr_list, x1.shape[0], x1.shape[1], x2.shape[1])
-    
+
     disp_subplot(cca.x_loadings_.T[ind], n=[len(ind), 1], name='cca_x_class{}'.format(Class), plot_type='bar')
+    np.save('{0}/cca_x_class{1}.npy'.format(filepath, Class), cca.x_loadings_.T[ind])
     disp_subplot(cca.y_loadings_.T[ind], n=[len(ind), 1], name='cca_z_class{}'.format(Class))
+    np.save('{0}/cca_z_class{1}.npy'.format(filepath, Class), cca.y_loadings_.T[ind])
     disp_subplot(cca.x_rotations_.T[ind], n=[len(ind), 1], name='w_x_class{}'.format(Class))
     disp_subplot(cca.y_rotations_.T[ind], n=[len(ind), 1], name='w_z_class{}'.format(Class))
     disp_subplot(x1[:x1.shape[1]], n=[x1.shape[1], 1], name='ori_x_class{}'.format(Class), axis_fix=True, plot_type='bar')
@@ -239,7 +250,7 @@ def control_z(src, c):
 def main():
     x = np.load('{0}/dataset/{1}/train0.npy'.format(filedir, datadir))
     buff = []
-    label = ['max', 'max ind', 'min', 'min ind', 'p2p', 'mean', 'meanfreq']
+    label = ['max', 'max pos', 'min', 'min pos', 'p2p', 'mean', 'meanfreq']
     np.set_printoptions(formatter={'float': '{: 0.4f}'.format})
     for cc, i in enumerate(np.unique(x[..., -1])):
         src = x[x[..., -1]==i, :-1]
@@ -269,15 +280,20 @@ def main():
     x_loadings, y_loadings = calc_cca(trans_x1, trans_x2, low_corr=0.45)
     assert x_loadings.shape[1] > l_ind, 'print load index{0}'.format(l_ind)
     p = l_ind
-    z = [y_loadings[:, p] * i for i in np.arange(0.5, 1.5, 1/100)]
+    val = [0.1, 1, 2]
+    # z = [y_loadings[:, p] * i for i in np.arange(0.1, , (0.1+10)/3)]
+    z = [y_loadings[:, p] * i for i in val]
     z = np.asarray(z)[..., None]
     g_z = control_z(src=z, c=Class)
 
     trans_x, trans_y = trans_data(g_z[..., 0], g_z[..., 1])
-    ind = range(0, 100, 30)
+    ind = range(0, 3)
     disp_subplot(g_z[ind, :, 0], n=[3,1], plot_type='line', name='control_gz_based_on_loading{1}_class{0}'.format(Class, p), axis_fix=True, ylim=[0,1])
+    np.save('{2}/control_gz_based_on_loading{1}_class{0}.npy'.format(Class, p, filepath), g_z[ind, :, 0])
     disp_subplot(trans_x[ind], n=[3,1], plot_type='bar', name='gz_based_on_loading{1}_class{0}'.format(Class, p), axis_fix=True)
+    np.save('{2}/gz_based_on_loading{1}_class{0}.npy'.format(Class, p, filepath), trans_x[ind])
     disp_subplot(trans_y[ind], n=[3,1], plot_type='line', name='z_based_on_loadings{1}_class{0}'.format(Class, p), axis_fix=True)
+    np.save('{2}/z_based_on_loadings{1}_class{0}.npy'.format(Class, p, filepath), trans_y[ind])
     return
 
     # morphing_disp()
